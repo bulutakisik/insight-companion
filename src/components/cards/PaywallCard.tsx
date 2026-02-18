@@ -5,6 +5,7 @@ interface PaywallCardProps {
 }
 
 const PaywallCard = ({ data }: PaywallCardProps) => {
+  console.log('[PaywallCard] data:', JSON.stringify(data));
   return (
     <div className="bg-background-2 border-2 border-primary rounded-2xl p-7 text-center mt-4 animate-fade-up">
       <h3 className="font-serif text-[22px] font-normal mb-2">{data.title}</h3>

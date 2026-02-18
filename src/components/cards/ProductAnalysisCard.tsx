@@ -5,6 +5,8 @@ interface ProductAnalysisCardProps {
 }
 
 const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
+  console.log('[ProductAnalysisCard] data:', JSON.stringify(data));
+  const company = data?.company ?? { name: '', logo: '', description: '', tags: [] };
   return (
     <div className="bg-background-2 border border-border rounded-2xl mb-4 overflow-hidden animate-fade-up">
       <div className="px-[18px] py-3.5 border-b border-border flex items-center justify-between">
@@ -16,13 +18,13 @@ const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
       <div className="p-[18px]">
         <div className="flex gap-3.5 items-start">
           <div className="w-11 h-11 rounded-[11px] bg-background-3 border border-border flex items-center justify-center font-mono text-base font-bold text-foreground-2 shrink-0">
-            {data.company.logo}
+            {company.logo}
           </div>
           <div>
-            <h4 className="text-[15px] font-semibold mb-0.5">{data.company.name}</h4>
-            <p className="text-xs text-foreground-3 leading-relaxed">{data.company.description}</p>
+            <h4 className="text-[15px] font-semibold mb-0.5">{company.name}</h4>
+            <p className="text-xs text-foreground-3 leading-relaxed">{company.description}</p>
             <div className="flex flex-wrap gap-1.5 mt-2.5">
-              {data.company.tags.map((tag) => (
+              {(company.tags || []).map((tag) => (
                 <span key={tag} className="px-2 py-0.5 bg-background-3 border border-border rounded-md font-mono text-[10px] text-foreground-2">
                   {tag}
                 </span>
@@ -31,7 +33,7 @@ const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          {data.modules.map((mod) => (
+          {(data?.modules || []).map((mod) => (
             <div key={mod.name} className="p-3 bg-background border border-border rounded-[10px]">
               <h5 className="text-xs font-semibold mb-0.5">{mod.name}</h5>
               <p className="text-[11px] text-foreground-3 leading-snug">{mod.description}</p>

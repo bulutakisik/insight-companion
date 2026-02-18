@@ -5,6 +5,7 @@ interface CompetitiveCardProps {
 }
 
 const CompetitiveCard = ({ data }: CompetitiveCardProps) => {
+  console.log('[CompetitiveCard] data:', JSON.stringify(data));
   const statusClass = (status?: string) => {
     if (status === "win") return "text-success font-semibold";
     if (status === "lose") return "text-danger font-semibold";
@@ -24,7 +25,7 @@ const CompetitiveCard = ({ data }: CompetitiveCardProps) => {
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr>
-              {data.headers.map((h, i) => (
+              {(data?.headers || []).map((h, i) => (
                 <th
                   key={i}
                   className="text-left px-2.5 py-2 font-mono text-[10px] font-semibold uppercase tracking-wider text-foreground-3 border-b border-border bg-background"
@@ -35,12 +36,12 @@ const CompetitiveCard = ({ data }: CompetitiveCardProps) => {
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((row, ri) => (
+            {(data?.rows || []).map((row, ri) => (
               <tr key={ri}>
                 <td className="px-2.5 py-2 border-b border-background-3 font-semibold text-foreground">
                   {row.metric}
                 </td>
-                {row.values.map((v, vi) => (
+                {(row.values || []).map((v, vi) => (
                   <td key={vi} className={`px-2.5 py-2 border-b border-background-3 ${statusClass(v.status)}`}>
                     {v.text}
                   </td>

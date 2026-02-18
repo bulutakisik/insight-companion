@@ -5,6 +5,7 @@ interface FunnelCardProps {
 }
 
 const FunnelCard = ({ data }: FunnelCardProps) => {
+  console.log('[FunnelCard] data:', JSON.stringify(data));
   const colorClasses = {
     red: {
       bg: "bg-danger-dim",
@@ -36,7 +37,7 @@ const FunnelCard = ({ data }: FunnelCardProps) => {
       </div>
       <div className="p-[18px]">
         <div className="flex gap-1">
-          {data.stages.map((stage) => {
+          {(data?.stages || []).map((stage) => {
             const c = colorClasses[stage.color];
             return (
               <div
@@ -52,10 +53,12 @@ const FunnelCard = ({ data }: FunnelCardProps) => {
             );
           })}
         </div>
-        <div className="mt-3.5 p-3 bg-danger-dim border border-danger-border rounded-[10px]">
-          <div className="text-xs font-bold text-danger mb-1">{data.bottleneck.title}</div>
-          <div className="text-xs text-foreground-2 leading-relaxed">{data.bottleneck.description}</div>
-        </div>
+        {data?.bottleneck && (
+          <div className="mt-3.5 p-3 bg-danger-dim border border-danger-border rounded-[10px]">
+            <div className="text-xs font-bold text-danger mb-1">{data.bottleneck.title}</div>
+            <div className="text-xs text-foreground-2 leading-relaxed">{data.bottleneck.description}</div>
+          </div>
+        )}
       </div>
     </div>
   );
