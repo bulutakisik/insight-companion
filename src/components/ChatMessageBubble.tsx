@@ -4,8 +4,23 @@ interface ChatMessageBubbleProps {
   message: ChatMessage;
 }
 
+function markdownToHtml(text: string): string {
+  // Convert **bold** to <strong>
+  let html = text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  // Convert double newlines to paragraph breaks
+  html = html.replace(/\n\n/g, "</p><p>");
+  // Convert single newlines to <br>
+  html = html.replace(/\n/g, "<br>");
+  // Wrap in <p> if we added paragraph breaks
+  if (html.includes("</p><p>")) {
+    html = "<p>" + html + "</p>";
+  }
+  return html;
+}
+
 const ChatMessageBubble = ({ message }: ChatMessageBubbleProps) => {
   const isUser = message.sender === "user";
+  const renderedHtml = isUser ? message.html : markdownToHtml(message.html);
 
   return (
     <div className={`mb-5 animate-fade-up ${isUser ? "" : ""}`}>
@@ -30,13 +45,13 @@ const ChatMessageBubble = ({ message }: ChatMessageBubbleProps) => {
             : "text-foreground-2"
         }`}
       >
-        {isUser ? (
+      {isUser ? (
           <div className="bg-background-3 border border-border px-4 py-3 rounded-xl inline-block text-foreground">
-            <span dangerouslySetInnerHTML={{ __html: message.html }} />
+            <span dangerouslySetInnerHTML={{ __html: renderedHtml }} />
           </div>
         ) : (
           <div>
-            <span dangerouslySetInnerHTML={{ __html: message.html }} />
+            <span dangerouslySetInnerHTML={{ __html: renderedHtml }} />
           </div>
         )}
       </div>
