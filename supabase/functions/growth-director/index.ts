@@ -124,13 +124,17 @@ Deno.serve(async (req) => {
         'x-api-key': ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model: 'claude-opus-4-0-20250618',
-        max_tokens: 8192,
-        system: SYSTEM_PROMPT,
-        messages: claudeMessages,
-        stream: true,
-      }),
+      body: (() => {
+        const requestBody = {
+          model: 'claude-opus-4-6',
+          max_tokens: 8192,
+          system: SYSTEM_PROMPT,
+          messages: claudeMessages,
+          stream: true,
+        };
+        console.log('Claude API request body:', JSON.stringify(requestBody, null, 2));
+        return JSON.stringify(requestBody);
+      })(),
     });
 
     if (!response.ok) {
