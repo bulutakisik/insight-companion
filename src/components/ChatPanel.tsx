@@ -37,7 +37,7 @@ const ChatPanel = ({ items, phase, inputDisabled, onSend }: ChatPanelProps) => {
   };
 
   return (
-    <div className="border-r border-border flex flex-col bg-background-2">
+    <div className="border-r border-border flex flex-col bg-background-2 min-h-0">
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 pb-4 scrollbar-thin">
         {items.map((item, i) =>
           item.type === "message" ? (

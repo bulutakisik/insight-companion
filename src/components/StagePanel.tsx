@@ -23,7 +23,7 @@ const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: 
   const isEmpty = outputCards.length === 0;
 
   return (
-    <div className="bg-background flex flex-col overflow-hidden">
+    <div className="bg-background flex flex-col min-h-0 overflow-hidden">
       <ProgressBar steps={progressSteps} visible={progressVisible} />
       <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
         {isEmpty ? (
