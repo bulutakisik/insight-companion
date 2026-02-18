@@ -41,11 +41,15 @@ const CompetitiveCard = ({ data }: CompetitiveCardProps) => {
                 <td className="px-2.5 py-2 border-b border-background-3 font-semibold text-foreground">
                   {row.metric}
                 </td>
-                {(row.values || []).map((v, vi) => (
-                  <td key={vi} className={`px-2.5 py-2 border-b border-background-3 ${statusClass(v.status)}`}>
-                    {v.text}
-                  </td>
-                ))}
+                {(Array.isArray(row.values) ? row.values : Object.entries(row.values || {})).map((v: any, vi) => {
+                  const status = Array.isArray(row.values) ? v.status : v?.[1]?.status;
+                  const text = Array.isArray(row.values) ? v.text : (v?.[1]?.value ?? v?.[1] ?? '');
+                  return (
+                    <td key={vi} className={`px-2.5 py-2 border-b border-background-3 ${statusClass(status)}`}>
+                      {text}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
