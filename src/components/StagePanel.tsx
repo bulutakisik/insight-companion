@@ -21,6 +21,7 @@ interface StagePanelProps {
 }
 
 const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: StagePanelProps) => {
+  console.log('[StagePanel] outputCards:', outputCards);
   const isEmpty = outputCards.length === 0;
   const scrollRef = useRef<HTMLDivElement>(null);
 
