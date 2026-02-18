@@ -48,13 +48,13 @@ const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: 
           <div>
             {outputCards.map((card, i) => {
               switch (card.type) {
-                case "product":
+                case "product_analysis":
                   return <ProductAnalysisCard key={i} data={card.data} />;
-                case "competitive":
+                case "competitive_landscape":
                   return <CompetitiveCard key={i} data={card.data} />;
-                case "funnel":
+                case "funnel_diagnosis":
                   return <FunnelCard key={i} data={card.data} />;
-                case "workStatement":
+                case "work_statement":
                   return <WorkStatementCard key={i} data={card.data} />;
                 case "paywall":
                   return <PaywallCard key={i} data={card.data} />;

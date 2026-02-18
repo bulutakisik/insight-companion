@@ -89,10 +89,10 @@ export interface PaywallData {
 }
 
 export type OutputCard =
-  | { type: "product"; data: ProductAnalysisData }
-  | { type: "competitive"; data: CompetitiveData }
-  | { type: "funnel"; data: FunnelData }
-  | { type: "workStatement"; data: WorkStatementData }
+  | { type: "product_analysis"; data: ProductAnalysisData }
+  | { type: "competitive_landscape"; data: CompetitiveData }
+  | { type: "funnel_diagnosis"; data: FunnelData }
+  | { type: "work_statement"; data: WorkStatementData }
   | { type: "paywall"; data: PaywallData };
 
 export interface SessionState {
