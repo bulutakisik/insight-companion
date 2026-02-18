@@ -1,0 +1,4 @@
+project_id = "vnjvbpwwmnxcmtyvlpww"
+
+[functions.growth-director]
+verify_jwt = false
