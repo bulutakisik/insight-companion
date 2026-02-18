@@ -24,7 +24,7 @@ const ChatMessageBubble = ({ message }: ChatMessageBubbleProps) => {
         </div>
       </div>
       <div
-        className={`pl-9 text-sm leading-7 ${
+        className={`pl-9 text-sm leading-7 whitespace-pre-wrap ${
           isUser
             ? ""
             : "text-foreground-2"

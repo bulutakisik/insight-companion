@@ -80,10 +80,9 @@ export function parseStreamChunk(
     chatText = combined.slice(0, incompleteMatch.index);
   }
 
-  // Clean up whitespace-only chat text
-  const cleanedText = chatText.trim();
-  if (cleanedText) {
-    events.push({ type: "chat_text", text: cleanedText });
+  // Emit chat text preserving all whitespace — do NOT trim individual chunks
+  if (chatText) {
+    events.push({ type: "chat_text", text: chatText });
   }
 
   return { events, remainingBuffer };
