@@ -48,7 +48,7 @@ const FunnelCard = ({ data }: FunnelCardProps) => {
                   {stage.label}
                 </div>
                 <div className={`font-mono text-lg font-semibold ${c.value}`}>{stage.value}</div>
-                <div className="text-[9px] text-foreground-3 mt-0.5">{stage.sub}</div>
+                <div className="text-[9px] text-foreground-3 mt-0.5">{stage.sub || stage.subtitle}</div>
               </div>
             );
           })}
