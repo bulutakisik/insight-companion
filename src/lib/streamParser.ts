@@ -24,10 +24,11 @@ export function parseStreamChunk(
   }
 
   // Extract complete stream blocks
-  const streamBlockRegex = /<stream_block>([\s\S]*?)<\/stream_block>/g;
   let match;
-  while ((match = streamBlockRegex.exec(combined)) !== null) {
-    const blockContent = match[1];
+  // Extract complete stream blocks — use fresh regex after each mutation
+  let sbMatch;
+  while ((sbMatch = /<stream_block>([\s\S]*?)<\/stream_block>/g.exec(combined)) !== null) {
+    const blockContent = sbMatch[1];
 
     const itemRegex = /<stream_item icon="([^"]+)">([\s\S]*?)<\/stream_item>/g;
     let itemMatch;
@@ -41,20 +42,21 @@ export function parseStreamChunk(
       events.push({ type: "stream_complete", summary: completeMatch[1].trim() });
     }
 
-    combined = combined.replace(match[0], "");
+    combined = combined.slice(0, sbMatch.index) + combined.slice(sbMatch.index + sbMatch[0].length);
   }
 
   // Extract complete output blocks (handle both </output> and </o> closing tags)
-  const outputRegex = /<output type="([^"]+)">([\s\S]*?)<\/(?:output|o)>/g;
-  while ((match = outputRegex.exec(combined)) !== null) {
-    console.log("[StreamParser] matched output block type:", match[1], "data length:", match[2].trim().length);
+  // Use a loop with fresh regex each time to avoid index issues after mutation
+  let outputMatch;
+  while ((outputMatch = /<output type="([^"]+)">([\s\S]*?)<\/(?:output|o)>/g.exec(combined)) !== null) {
+    console.log("[StreamParser] matched output block type:", outputMatch[1], "data length:", outputMatch[2].trim().length);
     try {
-      const data = JSON.parse(match[2].trim());
-      events.push({ type: "output", outputType: match[1], data });
+      const data = JSON.parse(outputMatch[2].trim());
+      events.push({ type: "output", outputType: outputMatch[1], data });
     } catch (e) {
       console.error("Failed to parse output JSON:", e);
     }
-    combined = combined.replace(match[0], "");
+    combined = combined.slice(0, outputMatch.index) + combined.slice(outputMatch.index + outputMatch[0].length);
   }
 
   // Extract progress tags

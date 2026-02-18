@@ -126,7 +126,15 @@ export function useGrowthDirector() {
         break;
 
       case "output":
-        setOutputCards((prev) => [...prev, { type: event.outputType, data: event.data } as OutputCard]);
+        console.log("[Hook] Received output event:", event.outputType, event.data);
+        setOutputCards((prev) => {
+          // Dedup: only add each output type once
+          if (prev.some((c) => c.type === event.outputType)) {
+            console.log("[Hook] Skipping duplicate output type:", event.outputType);
+            return prev;
+          }
+          return [...prev, { type: event.outputType, data: event.data } as OutputCard];
+        });
         break;
 
       case "progress":
