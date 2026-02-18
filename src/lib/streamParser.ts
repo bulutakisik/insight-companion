@@ -1,0 +1,90 @@
+export type StreamEvent =
+  | { type: "chat_text"; text: string }
+  | { type: "stream_item"; icon: string; text: string }
+  | { type: "stream_complete"; summary: string }
+  | { type: "output"; outputType: string; data: any }
+  | { type: "progress"; step: number; state: "active" | "done" }
+  | { type: "whats_next"; icon: string; title: string; desc: string }
+  | { type: "whats_next_clear" }
+  | { type: "done" };
+
+export function parseStreamChunk(
+  buffer: string,
+  chunk: string
+): { events: StreamEvent[]; remainingBuffer: string } {
+  let combined = buffer + chunk;
+  const events: StreamEvent[] = [];
+
+  // Extract complete stream blocks
+  const streamBlockRegex = /<stream_block>([\s\S]*?)<\/stream_block>/g;
+  let match;
+  while ((match = streamBlockRegex.exec(combined)) !== null) {
+    const blockContent = match[1];
+
+    const itemRegex = /<stream_item icon="([^"]+)">([\s\S]*?)<\/stream_item>/g;
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(blockContent)) !== null) {
+      events.push({ type: "stream_item", icon: itemMatch[1], text: itemMatch[2].trim() });
+    }
+
+    const completeRegex = /<stream_complete>([\s\S]*?)<\/stream_complete>/g;
+    let completeMatch;
+    while ((completeMatch = completeRegex.exec(blockContent)) !== null) {
+      events.push({ type: "stream_complete", summary: completeMatch[1].trim() });
+    }
+
+    combined = combined.replace(match[0], "");
+  }
+
+  // Extract complete output blocks
+  const outputRegex = /<output type="([^"]+)">([\s\S]*?)<\/output>/g;
+  while ((match = outputRegex.exec(combined)) !== null) {
+    try {
+      const data = JSON.parse(match[2].trim());
+      events.push({ type: "output", outputType: match[1], data });
+    } catch (e) {
+      console.error("Failed to parse output JSON:", e);
+    }
+    combined = combined.replace(match[0], "");
+  }
+
+  // Extract progress tags
+  const progressRegex = /<progress step="(\d+)" state="(active|done)"\/>/g;
+  while ((match = progressRegex.exec(combined)) !== null) {
+    events.push({ type: "progress", step: parseInt(match[1]), state: match[2] as "active" | "done" });
+    combined = combined.replace(match[0], "");
+  }
+
+  // Extract whats_next tags
+  const whatsNextClearRegex = /<whats_next clear="true"\/>/g;
+  while ((match = whatsNextClearRegex.exec(combined)) !== null) {
+    events.push({ type: "whats_next_clear" });
+    combined = combined.replace(match[0], "");
+  }
+
+  const whatsNextRegex = /<whats_next icon="([^"]+)" title="([^"]+)" desc="([^"]+)"\/>/g;
+  while ((match = whatsNextRegex.exec(combined)) !== null) {
+    events.push({ type: "whats_next", icon: match[1], title: match[2], desc: match[3] });
+    combined = combined.replace(match[0], "");
+  }
+
+  // Determine remaining buffer (incomplete tags)
+  const incompleteTagRegex = /<(?:stream_block|output|progress|whats_next)(?:(?!<\/(?:stream_block|output)>|\/\s*>)[\s\S])*$/;
+  const incompleteMatch = combined.match(incompleteTagRegex);
+
+  let remainingBuffer = "";
+  let chatText = combined;
+
+  if (incompleteMatch) {
+    remainingBuffer = incompleteMatch[0];
+    chatText = combined.slice(0, incompleteMatch.index);
+  }
+
+  // Clean up whitespace-only chat text
+  const cleanedText = chatText.trim();
+  if (cleanedText) {
+    events.push({ type: "chat_text", text: cleanedText });
+  }
+
+  return { events, remainingBuffer };
+}
