@@ -53,7 +53,8 @@ export interface CompetitiveData {
 export interface FunnelStage {
   label: string;
   value: string;
-  sub: string;
+  sub?: string;
+  subtitle?: string;
   color: "red" | "orange" | "green";
 }
 

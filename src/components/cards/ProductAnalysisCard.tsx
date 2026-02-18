@@ -6,7 +6,16 @@ interface ProductAnalysisCardProps {
 
 const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
   console.log('[ProductAnalysisCard] data:', JSON.stringify(data));
-  const company = data?.company ?? { name: '', logo: '', description: '', tags: [] };
+  // Support both nested {company:{name,description,tags}} and flat {company:"Name",description,tags}
+  const d = data as any;
+  const companyName = typeof d.company === 'string' ? d.company : d.company?.name ?? '';
+  const logo = typeof d.company === 'object' ? d.company?.logo : '';
+  const description = typeof d.company === 'object' ? d.company?.description : d.description ?? '';
+  const tags: string[] = typeof d.company === 'object' ? (d.company?.tags || []) : (d.tags || []);
+  const modules: any[] = typeof d.company === 'object' ? (d.modules || []) : (d.modules || []);
+
+  const firstLetter = companyName ? companyName.charAt(0).toUpperCase() : '?';
+
   return (
     <div className="bg-background-2 border border-border rounded-2xl mb-4 overflow-hidden animate-fade-up">
       <div className="px-[18px] py-3.5 border-b border-border flex items-center justify-between">
@@ -18,13 +27,13 @@ const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
       <div className="p-[18px]">
         <div className="flex gap-3.5 items-start">
           <div className="w-11 h-11 rounded-[11px] bg-background-3 border border-border flex items-center justify-center font-mono text-base font-bold text-foreground-2 shrink-0">
-            {company.logo}
+            {logo || firstLetter}
           </div>
           <div>
-            <h4 className="text-[15px] font-semibold mb-0.5">{company.name}</h4>
-            <p className="text-xs text-foreground-3 leading-relaxed">{company.description}</p>
+            <h4 className="text-[15px] font-semibold mb-0.5">{companyName}</h4>
+            <p className="text-xs text-foreground-3 leading-relaxed">{description}</p>
             <div className="flex flex-wrap gap-1.5 mt-2.5">
-              {(company.tags || []).map((tag) => (
+              {tags.map((tag) => (
                 <span key={tag} className="px-2 py-0.5 bg-background-3 border border-border rounded-md font-mono text-[10px] text-foreground-2">
                   {tag}
                 </span>
@@ -33,21 +42,25 @@ const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          {(data?.modules || []).map((mod) => (
-            <div key={mod.name} className="p-3 bg-background border border-border rounded-[10px]">
-              <h5 className="text-xs font-semibold mb-0.5">{mod.name}</h5>
-              <p className="text-[11px] text-foreground-3 leading-snug">{mod.description}</p>
-              <span
-                className={`inline-block mt-1.5 px-[7px] py-0.5 rounded font-mono text-[9px] font-semibold uppercase ${
-                  mod.type === "unique"
-                    ? "bg-success-dim text-success border border-success-border"
-                    : "bg-background-3 text-foreground-3 border border-border"
-                }`}
-              >
-                {mod.type}
-              </span>
-            </div>
-          ))}
+          {modules.map((mod: any) => {
+            const modType = mod.type || mod.tag || '';
+            const isUnique = modType === 'unique' || modType === 'new';
+            return (
+              <div key={mod.name} className="p-3 bg-background border border-border rounded-[10px]">
+                <h5 className="text-xs font-semibold mb-0.5">{mod.name}</h5>
+                <p className="text-[11px] text-foreground-3 leading-snug">{mod.description}</p>
+                <span
+                  className={`inline-block mt-1.5 px-[7px] py-0.5 rounded font-mono text-[9px] font-semibold uppercase ${
+                    isUnique
+                      ? "bg-success-dim text-success border border-success-border"
+                      : "bg-background-3 text-foreground-3 border border-border"
+                  }`}
+                >
+                  {modType}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
