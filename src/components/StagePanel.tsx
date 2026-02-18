@@ -1,3 +1,4 @@
+import { useRef, useEffect } from "react";
 import { OutputCard, ProgressStep } from "@/types/conversation";
 import ProgressBar from "./ProgressBar";
 import ProductAnalysisCard from "./cards/ProductAnalysisCard";
@@ -21,11 +22,20 @@ interface StagePanelProps {
 
 const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: StagePanelProps) => {
   const isEmpty = outputCards.length === 0;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current && outputCards.length > 0) {
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      }, 100);
+    }
+  }, [outputCards.length, whatsNext]);
 
   return (
     <div className="bg-background flex flex-col min-h-0 overflow-hidden">
       <ProgressBar steps={progressSteps} visible={progressVisible} />
-      <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
+      <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto scrollbar-thin">
         {isEmpty ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center h-full min-h-[400px]">
             <h2 className="font-serif text-[26px] font-normal mb-2">Your growth plan builds here</h2>
