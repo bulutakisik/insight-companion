@@ -15,6 +15,14 @@ export function parseStreamChunk(
   let combined = buffer + chunk;
   const events: StreamEvent[] = [];
 
+  // Debug: log raw stream content
+  if (chunk) {
+    console.log("[StreamParser] raw chunk:", JSON.stringify(chunk));
+  }
+  if (combined.includes("<output") || combined.includes("<stream_block") || combined.includes("<stream_item")) {
+    console.log("[StreamParser] detected XML tag in combined buffer, length:", combined.length);
+  }
+
   // Extract complete stream blocks
   const streamBlockRegex = /<stream_block>([\s\S]*?)<\/stream_block>/g;
   let match;
@@ -36,9 +44,10 @@ export function parseStreamChunk(
     combined = combined.replace(match[0], "");
   }
 
-  // Extract complete output blocks
-  const outputRegex = /<output type="([^"]+)">([\s\S]*?)<\/output>/g;
+  // Extract complete output blocks (handle both </output> and </o> closing tags)
+  const outputRegex = /<output type="([^"]+)">([\s\S]*?)<\/(?:output|o)>/g;
   while ((match = outputRegex.exec(combined)) !== null) {
+    console.log("[StreamParser] matched output block type:", match[1], "data length:", match[2].trim().length);
     try {
       const data = JSON.parse(match[2].trim());
       events.push({ type: "output", outputType: match[1], data });
@@ -68,8 +77,8 @@ export function parseStreamChunk(
     combined = combined.replace(match[0], "");
   }
 
-  // Determine remaining buffer (incomplete tags)
-  const incompleteTagRegex = /<(?:stream_block|output|progress|whats_next)(?:(?!<\/(?:stream_block|output)>|\/\s*>)[\s\S])*$/;
+  // Determine remaining buffer (incomplete tags) — also match </o> closing
+  const incompleteTagRegex = /<(?:stream_block|output|progress|whats_next)(?:(?!<\/(?:stream_block|output|o)>|\/\s*>)[\s\S])*$/;
   const incompleteMatch = combined.match(incompleteTagRegex);
 
   let remainingBuffer = "";
