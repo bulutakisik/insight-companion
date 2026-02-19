@@ -1,6 +1,7 @@
-import { useRef, useEffect, useState, KeyboardEvent } from "react";
+import { useRef, useEffect, useState, useCallback, KeyboardEvent } from "react";
 import { ChatMessage, StreamBlockData, ConversationPhase } from "@/types/conversation";
 import { getPlaceholderForPhase } from "@/lib/stateMachine";
+import { ChevronDown } from "lucide-react";
 import ChatMessageBubble from "./ChatMessageBubble";
 import StreamBlock from "./StreamBlock";
 
@@ -17,13 +18,44 @@ interface ChatPanelProps {
 
 const ChatPanel = ({ items, phase, inputDisabled, onSend }: ChatPanelProps) => {
   const [inputValue, setInputValue] = useState("");
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+
+  const checkNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+  }, []);
+
+  const checkShowButton = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const far = el.scrollHeight - el.scrollTop - el.clientHeight > 200;
+    setShowScrollBtn(far);
+  }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      isNearBottomRef.current = checkNearBottom();
+      checkShowButton();
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [checkNearBottom, checkShowButton]);
+
+  useEffect(() => {
+    if (isNearBottomRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items]);
+    checkShowButton();
+  }, [items, checkShowButton]);
+
+  const scrollToBottom = () => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  };
 
   const handleSend = () => {
     const val = inputValue.trim();
@@ -47,6 +79,16 @@ const ChatPanel = ({ items, phase, inputDisabled, onSend }: ChatPanelProps) => {
           )
         )}
       </div>
+      {showScrollBtn && (
+        <div className="relative shrink-0 flex justify-center" style={{ height: 0 }}>
+          <button
+            onClick={scrollToBottom}
+            className="absolute -top-10 z-10 w-8 h-8 rounded-full bg-background/80 backdrop-blur border border-border shadow-md flex items-center justify-center hover:bg-background transition-all"
+          >
+            <ChevronDown size={16} className="text-foreground/70" />
+          </button>
+        </div>
+      )}
       <div className="p-3 px-6 pb-5 shrink-0">
         <div
           className={`flex items-center gap-2 bg-background border-[1.5px] border-border rounded-[14px] px-4 pr-1 transition-all ${
