@@ -1,10 +1,28 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+// supabase/functions/growth-director/index.ts
+//
+// This edge function:
+// 1. Receives messages from the frontend
+// 2. Calls Claude API with web_search (native) + web_fetch (custom tool)
+// 3. Streams text back to frontend as SSE
+// 4. When Claude calls web_fetch, executes the actual fetch server-side
+// 5. Sends the result back to Claude and lets it continue (agentic loop)
+// 6. Repeats until Claude produces a final response with no tool calls
+
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// ── System Prompt ──
+// Paste your full system prompt here as a string.
+// For now using a placeholder — replace with the real one.
 const SYSTEM_PROMPT = `You are the Growth Director at LaunchAgent — the world's first humanless agentic growth team.
 
 You are a senior growth professional with 15+ years of experience across B2B SaaS, developer tools, and enterprise software. You think like a VP of Growth, not a chatbot. You are direct, opinionated, and back everything with data. You don't guess — you research, calculate, and diagnose.
@@ -110,34 +128,20 @@ Wait for their response. Then immediately run the math.
 Your responses contain THREE types of content that the frontend renders differently. You MUST use the exact XML tags specified below.
 
 ### 1. Chat Text
-Plain text that appears in the chat panel. Just write normally. Use **bold** for emphasis. Use <br><br> for paragraph breaks.
+Plain text that appears in the chat panel. Just write normally. Use **bold** for emphasis. Use line breaks for paragraphs.
 
 ### 2. Stream Items
 Activity indicators that appear in a gray block in the chat, showing the user what you're doing in real-time. Use these WHILE you are researching, before presenting findings.
 
 Format:
-\`\`\`
 <stream_block>
 <stream_item icon="🔍">Searching companyname.com</stream_item>
 <stream_item icon="📄">Reading homepage — found "their tagline"</stream_item>
-<stream_item icon="📄">Reading /platform — identified N product modules</stream_item>
-<stream_item icon="⭐">Analyzing G2 reviews — N reviews, X/5 rating</stream_item>
-<stream_item icon="🧠">Key insight or finding</stream_item>
 <stream_complete>Summary of what was completed</stream_complete>
 </stream_block>
-\`\`\`
 
 Rules for stream items:
-- Use 🔍 for searches
-- Use 📄 for reading pages
-- Use ⭐ for analyzing reviews/ratings
-- Use 🧠 for insights and key findings
-- Use ⚔️ for competitive research
-- Use ⚠️ for warnings or concerns
-- Use 🔢 for calculations
-- Use 🧮 for math operations
-- Use 🚨 for critical findings (bottlenecks)
-- Use 📋 for planning/building
+- Use 🔍 for searches, 📄 for reading pages, ⭐ for reviews, 🧠 for insights, ⚔️ for competitive, ⚠️ for warnings, 🔢 for calculations, 🧮 for math, 🚨 for critical findings, 📋 for planning
 - Keep each item to one line, under 80 characters
 - Include 6-10 items per stream block
 - Bold important words with <strong> tags
@@ -147,30 +151,18 @@ Rules for stream items:
 Structured JSON that the frontend renders as cards on the right panel. These MUST follow the exact schema below.
 
 #### product_analysis
-Output after completing Phase 1.
-\`\`\`
 <output type="product_analysis">
 {
   "company": "Company Name",
-  "description": "One paragraph description of what they do",
-  "tags": ["Tag 1", "Tag 2", "Tag 3", "Tag 4"],
+  "description": "One paragraph description",
+  "tags": ["Tag 1", "Tag 2"],
   "modules": [
-    {
-      "name": "Module Name",
-      "description": "Short description",
-      "tag": "core" | "unique" | "new" | "deprecated"
-    }
+    {"name": "Module Name", "description": "Short description", "tag": "core"}
   ]
 }
-</output>
-\`\`\`
-
-Tags should include: funding stage/amount, customer count, ACV if discoverable, key metric (like NDR or growth rate).
-Modules: list every distinct product/feature/module you identified. Mark genuinely unique capabilities as "unique".
+</o>
 
 #### competitive_landscape
-Output after completing Phase 2.
-\`\`\`
 <output type="competitive_landscape">
 {
   "competitors": ["Competitor 1", "Competitor 2"],
@@ -178,79 +170,30 @@ Output after completing Phase 2.
     {
       "dimension": "Funding",
       "values": {
-        "client": { "value": "$80M", "status": "mid" },
-        "Competitor 1": { "value": "$250M", "status": "win" },
-        "Competitor 2": { "value": "$179M", "status": "neutral" }
+        "client": {"value": "$80M", "status": "mid"},
+        "Competitor 1": {"value": "$250M", "status": "win"}
       }
     }
   ]
 }
-</output>
-\`\`\`
+</o>
 
-Status values: "win" (green — they lead), "lose" (red — they trail), "mid" (orange — caution), "neutral" (default).
-The "client" key always refers to the user's company.
-Include 6-8 rows covering: Funding, ARR/Revenue, Customers, G2/Review Rating, key differentiators, positioning.
+Status values: "win" (green), "lose" (red), "mid" (orange), "neutral" (default).
 
 #### funnel_diagnosis
-Output after completing the math in Phase 5.
-\`\`\`
 <output type="funnel_diagnosis">
 {
   "stages": [
-    {
-      "label": "Acquisition",
-      "value": "60K",
-      "subtitle": "visitors/mo",
-      "color": "orange" | "red" | "green"
-    },
-    {
-      "label": "Activation",
-      "value": "55",
-      "subtitle": "demos · 0.09%",
-      "color": "red"
-    },
-    {
-      "label": "Conversion",
-      "value": "~4",
-      "subtitle": "closed · 15%",
-      "color": "red"
-    },
-    {
-      "label": "Revenue",
-      "value": "$30M",
-      "subtitle": "$120K ACV",
-      "color": "green"
-    },
-    {
-      "label": "Retention",
-      "value": "120%",
-      "subtitle": "NDR",
-      "color": "green"
-    }
+    {"label": "Acquisition", "value": "60K", "subtitle": "visitors/mo", "color": "orange"}
   ],
   "bottleneck": {
-    "title": "Primary Bottleneck: [Name]",
-    "description": "2-3 sentence explanation with specific numbers and benchmarks"
+    "title": "Primary Bottleneck: Positioning",
+    "description": "Explanation with numbers and benchmarks"
   }
 }
-</output>
-\`\`\`
-
-Color rules:
-- "red" = this stage is broken, significantly below benchmark
-- "orange" = this stage is underperforming but not critical
-- "green" = this stage is healthy
-
-Determine colors by comparing to industry benchmarks:
-- Website visitor to demo/trial: B2B SaaS benchmark 0.2-0.5%, enterprise 0.1-0.3%
-- Demo to qualified: benchmark 40-60%
-- Qualified to closed: benchmark 20-30% for SMB, 15-25% for enterprise
-- Net revenue retention: benchmark 100-120% for SMB, 110-130% for enterprise
+</o>
 
 #### work_statement
-Output after building the sprint plan in Phase 5.
-\`\`\`
 <output type="work_statement">
 {
   "sprints": [
@@ -258,34 +201,16 @@ Output after building the sprint plan in Phase 5.
       "number": 1,
       "title": "Foundation — Week 1",
       "tasks": [
-        { "agent": "pmm", "task": "Positioning framework" },
-        { "agent": "seo", "task": "Full SEO audit" },
-        { "agent": "content", "task": "Blog posts ×2" },
-        { "agent": "dev", "task": "Homepage hero rebuild" },
-        { "agent": "growth", "task": "Growth audit + 4 ideas" },
-        { "agent": "intern", "task": "GSC + GA4 setup" }
+        {"agent": "pmm", "task": "Positioning framework"}
       ]
     }
   ]
 }
-</output>
-\`\`\`
+</o>
 
 Agent values: "pmm", "seo", "content", "dev", "growth", "perf", "social", "intern"
 
-Sprint planning rules:
-- Sprint 1 ALWAYS front-loads the bottleneck fix. If bottleneck is positioning, PMM leads. If acquisition, SEO + Performance Marketer lead. If conversion, Growth Hacker + Dev lead.
-- Intern always has setup tasks in Sprint 1 (analytics, tracking, tool setup)
-- Content Writer ramps up from Sprint 1 (2 posts) to Sprint 2+ (4 posts)
-- Social Media Manager starts in Sprint 2 (needs positioning from Sprint 1 first)
-- Performance Marketer starts in Sprint 2 (needs messaging from Sprint 1 first)
-- Sprint 4 always includes measurement and next-month planning
-- Each sprint should have 5-8 tasks across different agents
-- Be specific about quantities (×2, ×4, ×6, ×12) — the user needs to know exactly what they're getting
-
 #### paywall
-Output at the very end.
-\`\`\`
 <output type="paywall">
 {
   "headline": "Your growth team is ready",
@@ -293,31 +218,18 @@ Output at the very end.
   "cta": "Start Sprint 1 →",
   "price": "$499/month · All agents · Cancel anytime"
 }
-</output>
-\`\`\`
+</o>
 
 ## RESEARCH GUIDELINES
 
 When using web_search and web_fetch:
 - Search broadly first, then go deep on specific pages
 - Always try to fetch the actual homepage, product page, and about page
-- For reviews, search "[company name] G2 reviews" and "[company name] Gartner reviews"
+- For reviews, search "[company name] G2 reviews"
 - For competitors, search "[company name] competitors" and "[company name] vs"
-- For funding, search "[company name] funding crunchbase"
-- For news, search "[company name] 2025 2026 news"
-- Read at least 3-5 pages per company (homepage, product, about, blog, reviews)
-- For competitors, read at least 2-3 pages each (homepage, product, about)
-- Extract SPECIFIC numbers: funding amounts, customer counts, team sizes, review scores, specific percentages from reviews
-- Note exact quotes from review themes (e.g., "40% of reviewers mention...")
+- Read at least 3-5 pages per company
+- Extract SPECIFIC numbers: funding amounts, customer counts, review scores
 - Compare positioning language word-for-word across competitors
-
-## WHAT MAKES A GOOD ANALYSIS
-
-- SPECIFICITY: Don't say "strong reviews." Say "4.9/5 on G2 with 200+ reviews, 40% mentioning one-click mitigations."
-- BENCHMARKS: Don't say "low conversion." Say "0.09% visitor-to-demo, vs. 0.2-0.4% enterprise benchmark."
-- COMPETITIVE CONTEXT: Don't say "competitor is bigger." Say "Pentera: $250M raised, $100M+ ARR, 2 acquisitions in 2025. They're consolidating the market."
-- MATH: Don't say "you need more deals." Say "125 deals needed, funnel produces 48, gap is 77 deals worth $9.2M."
-- HONEST ASSESSMENT: If something is broken, say it's broken. If something is exceptional, say it's exceptional. Don't hedge everything.
 
 ## IMPORTANT RULES
 
@@ -331,135 +243,238 @@ When using web_search and web_fetch:
 8. The output blocks must contain valid JSON. No trailing commas, no comments.
 9. Keep chat messages concise. 3-5 short paragraphs max per message.
 10. Bold key numbers, names, and findings in chat messages.
-11. When the user gives feedback at checkpoint, acknowledge it specifically and explain how it changes your thinking.
-12. The work statement tasks must be specific and quantified — not vague like "improve SEO" but specific like "Full technical SEO audit + keyword gap analysis vs top 3 competitors."`;
+`;
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
+// ── Tool Definitions ──
+const TOOLS = [
+  {
+    type: "web_search_20250305",
+    name: "web_search",
+  },
+  {
+    name: "web_fetch",
+    description:
+      "Fetch the full text content of a web page at a given URL. Use this to read specific pages like homepages, product pages, about pages, pricing pages, etc. Returns the text content of the page.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string" as const,
+          description: "The full URL to fetch (must include https://)",
+        },
+      },
+      required: ["url"],
+    },
+  },
+];
+
+// ── Fetch a URL and return text content ──
+async function fetchWebPage(url: string): Promise<string> {
+  try {
+    // Ensure URL has protocol
+    let fetchUrl = url;
+    if (!fetchUrl.startsWith("http")) {
+      fetchUrl = "https://" + fetchUrl;
+    }
+
+    const response = await fetch(fetchUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; LaunchAgent Growth Director/1.0)",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      return `Error: HTTP ${response.status} fetching ${url}`;
+    }
+
+    const html = await response.text();
+
+    // Strip HTML to text
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, "")
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // Limit to ~12K chars to manage token usage
+    return text.slice(0, 12000);
+  } catch (e) {
+    return `Error fetching ${url}: ${e.message}`;
+  }
+}
+
+// ── Call Claude API (non-streaming, for tool loop) ──
+async function callClaude(
+  messages: any[],
+  signal?: AbortSignal
+): Promise<any> {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-6",
+      max_tokens: 16000,
+      system: SYSTEM_PROMPT,
+      messages,
+      tools: TOOLS,
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Claude API error: ${response.status} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+// ── Main Handler ──
+serve(async (req) => {
+  // CORS
+  if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
     const { messages } = await req.json();
-    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
 
-    if (!ANTHROPIC_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: 'ANTHROPIC_API_KEY not configured' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      );
-    }
-
-    // Build Claude messages from conversation history
-    const claudeMessages = messages.map((m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: (() => {
-        const requestBody = {
-          model: 'claude-opus-4-6',
-          max_tokens: 8192,
-          system: SYSTEM_PROMPT,
-          messages: claudeMessages,
-          stream: true,
-        };
-        console.log('Claude API request body:', JSON.stringify(requestBody, null, 2));
-        return JSON.stringify(requestBody);
-      })(),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Claude API error:', response.status, errorText);
-      return new Response(
-        JSON.stringify({ error: `Claude API error: ${response.status}` }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-      );
-    }
-
-    // Stream the Claude response as SSE to the client
+    // Set up SSE stream to frontend
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
     const encoder = new TextEncoder();
-    const decoder = new TextDecoder();
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = response.body!.getReader();
-        let buffer = '';
+    const sendSSE = async (data: any) => {
+      await writer.write(
+        encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
+      );
+    };
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+    // Run the agentic loop in the background
+    (async () => {
+      try {
+        let currentMessages = [...messages];
+        let loopCount = 0;
+        const MAX_LOOPS = 20; // Safety limit
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
+        while (loopCount < MAX_LOOPS) {
+          loopCount++;
+          console.log(`[Loop ${loopCount}] Calling Claude...`);
 
-            for (const line of lines) {
-              if (!line.startsWith('data: ')) continue;
-              const jsonStr = line.slice(6).trim();
-              if (!jsonStr || jsonStr === '[DONE]') continue;
+          const response = await callClaude(currentMessages);
 
-              try {
-                const event = JSON.parse(jsonStr);
+          // Process response content blocks
+          let hasToolUse = false;
+          const toolResults: any[] = [];
+          let textContent = "";
 
-                if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                  const sseData = JSON.stringify({ type: 'text', text: event.delta.text });
-                  controller.enqueue(encoder.encode(`data: ${sseData}\n\n`));
-                } else if (event.type === 'message_stop') {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
-                }
-              } catch {
-                // Skip malformed JSON
+          for (const block of response.content) {
+            if (block.type === "text") {
+              textContent += block.text;
+              // Stream text to frontend
+              await sendSSE({ type: "text", text: block.text });
+            } else if (block.type === "tool_use") {
+              hasToolUse = true;
+
+              if (block.name === "web_fetch") {
+                const url = block.input.url;
+                console.log(`[Loop ${loopCount}] Fetching: ${url}`);
+
+                // Notify frontend about the fetch
+                await sendSSE({
+                  type: "tool_status",
+                  tool: "web_fetch",
+                  status: "fetching",
+                  url,
+                });
+
+                // Execute the fetch
+                const pageContent = await fetchWebPage(url);
+
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: block.id,
+                  content: pageContent,
+                });
+              } else if (block.name === "web_search") {
+                // web_search is handled natively by Claude
+                // But if it shows up as a tool_use block, we need to handle it
+                // This shouldn't happen with the web_search_20250305 type
+                // but just in case:
+                toolResults.push({
+                  type: "tool_result",
+                  tool_use_id: block.id,
+                  content: "Search completed.",
+                });
               }
             }
           }
 
-          // Process remaining buffer
-          if (buffer.startsWith('data: ')) {
-            const jsonStr = buffer.slice(6).trim();
-            if (jsonStr && jsonStr !== '[DONE]') {
-              try {
-                const event = JSON.parse(jsonStr);
-                if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                  const sseData = JSON.stringify({ type: 'text', text: event.delta.text });
-                  controller.enqueue(encoder.encode(`data: ${sseData}\n\n`));
-                }
-              } catch { /* ignore */ }
-            }
+          // If no tool calls, we're done
+          if (!hasToolUse) {
+            console.log(`[Loop ${loopCount}] No more tool calls. Done.`);
+            break;
           }
 
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
-          controller.close();
-        } catch (error) {
-          console.error('Stream processing error:', error);
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-          controller.close();
+          // Add assistant response + tool results to conversation
+          currentMessages = [
+            ...currentMessages,
+            { role: "assistant", content: response.content },
+            ...toolResults.map((tr) => ({ role: "user", content: [tr] })),
+          ];
         }
-      }
-    });
 
-    return new Response(stream, {
+        if (loopCount >= MAX_LOOPS) {
+          console.warn("Hit max loop limit!");
+          await sendSSE({
+            type: "text",
+            text: "\n\n*Analysis complete.*",
+          });
+        }
+
+        // Signal done
+        await sendSSE({ type: "done" });
+      } catch (e) {
+        console.error("Agentic loop error:", e);
+        await sendSSE({
+          type: "text",
+          text: `\n\nSomething went wrong: ${e.message}`,
+        });
+        await sendSSE({ type: "done" });
+      } finally {
+        await writer.close();
+      }
+    })();
+
+    return new Response(readable, {
       headers: {
         ...corsHeaders,
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
       },
     });
-  } catch (error) {
-    console.error('Request error:', error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    );
+  } catch (e) {
+    console.error("Handler error:", e);
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
