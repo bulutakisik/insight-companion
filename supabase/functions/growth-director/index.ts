@@ -315,11 +315,13 @@ async function fetchWebPage(url: string): Promise<string> {
   }
 }
 
-// ── Call Claude API (non-streaming, for tool loop) ──
-async function callClaude(
+// ── Stream one Claude round, forwarding text deltas to SSE in real-time ──
+// Returns the full list of content blocks produced by Claude for this turn.
+async function streamClaudeRound(
   messages: any[],
-  signal?: AbortSignal
-): Promise<any> {
+  sendSSE: (data: any) => Promise<void>,
+  loopCount: number,
+): Promise<{ contentBlocks: any[]; stopReason: string }> {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -333,8 +335,8 @@ async function callClaude(
       system: SYSTEM_PROMPT,
       messages,
       tools: TOOLS,
+      stream: true,
     }),
-    signal,
   });
 
   if (!response.ok) {
@@ -342,7 +344,101 @@ async function callClaude(
     throw new Error(`Claude API error: ${response.status} - ${errText}`);
   }
 
-  return response.json();
+  // Parse the SSE stream from Claude
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let sseBuffer = "";
+
+  // Track content blocks as they arrive
+  const contentBlocks: any[] = [];
+  let currentBlockIndex = -1;
+  let stopReason = "end_turn";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    sseBuffer += decoder.decode(value, { stream: true });
+
+    // Process complete SSE lines
+    let newlineIdx: number;
+    while ((newlineIdx = sseBuffer.indexOf("\n")) !== -1) {
+      const line = sseBuffer.slice(0, newlineIdx).trim();
+      sseBuffer = sseBuffer.slice(newlineIdx + 1);
+
+      if (!line.startsWith("data: ")) continue;
+      const jsonStr = line.slice(6);
+      if (jsonStr === "[DONE]") continue;
+
+      let event: any;
+      try {
+        event = JSON.parse(jsonStr);
+      } catch {
+        continue;
+      }
+
+      switch (event.type) {
+        case "content_block_start": {
+          currentBlockIndex = event.index;
+          const block = event.content_block;
+          if (block.type === "text") {
+            contentBlocks[currentBlockIndex] = { type: "text", text: "" };
+          } else if (block.type === "tool_use") {
+            contentBlocks[currentBlockIndex] = {
+              type: "tool_use",
+              id: block.id,
+              name: block.name,
+              input: {},
+              _inputJson: "", // accumulate raw JSON string
+            };
+          } else {
+            // server_tool_use (web_search) or other block types
+            contentBlocks[currentBlockIndex] = { ...block };
+          }
+          break;
+        }
+
+        case "content_block_delta": {
+          const idx = event.index;
+          const delta = event.delta;
+          if (!contentBlocks[idx]) break;
+
+          if (delta.type === "text_delta") {
+            contentBlocks[idx].text += delta.text;
+            // Forward text to frontend immediately
+            await sendSSE({ type: "text", text: delta.text });
+          } else if (delta.type === "input_json_delta") {
+            // Accumulate tool input JSON
+            contentBlocks[idx]._inputJson += delta.partial_json;
+          }
+          break;
+        }
+
+        case "content_block_stop": {
+          const idx = event.index;
+          const block = contentBlocks[idx];
+          if (block && block.type === "tool_use" && block._inputJson) {
+            try {
+              block.input = JSON.parse(block._inputJson);
+            } catch {
+              console.warn(`[Loop ${loopCount}] Failed to parse tool input JSON`);
+            }
+            delete block._inputJson;
+          }
+          break;
+        }
+
+        case "message_delta": {
+          if (event.delta?.stop_reason) {
+            stopReason = event.delta.stop_reason;
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return { contentBlocks, stopReason };
 }
 
 // ── Main Handler ──
@@ -371,71 +467,67 @@ serve(async (req) => {
       try {
         let currentMessages = [...messages];
         let loopCount = 0;
-        const MAX_LOOPS = 20; // Safety limit
+        const MAX_LOOPS = 20;
 
         while (loopCount < MAX_LOOPS) {
           loopCount++;
-          console.log(`[Loop ${loopCount}] Calling Claude...`);
+          console.log(`[Loop ${loopCount}] Calling Claude (streaming)...`);
 
-          const response = await callClaude(currentMessages);
+          const { contentBlocks, stopReason } = await streamClaudeRound(
+            currentMessages,
+            sendSSE,
+            loopCount,
+          );
 
-          // Process response content blocks
-          let hasToolUse = false;
+          // Check for tool use blocks and execute them
+          const toolUseBlocks = contentBlocks.filter((b) => b.type === "tool_use");
+
+          if (toolUseBlocks.length === 0) {
+            console.log(`[Loop ${loopCount}] No tool calls. Done.`);
+            break;
+          }
+
+          // Execute tools
           const toolResults: any[] = [];
-          let textContent = "";
+          for (const block of toolUseBlocks) {
+            if (block.name === "web_fetch") {
+              const url = block.input.url;
+              console.log(`[Loop ${loopCount}] Fetching: ${url}`);
 
-          for (const block of response.content) {
-            if (block.type === "text") {
-              textContent += block.text;
-              // Stream text to frontend
-              await sendSSE({ type: "text", text: block.text });
-            } else if (block.type === "tool_use") {
-              hasToolUse = true;
+              await sendSSE({
+                type: "tool_status",
+                tool: "web_fetch",
+                status: "fetching",
+                url,
+              });
 
-              if (block.name === "web_fetch") {
-                const url = block.input.url;
-                console.log(`[Loop ${loopCount}] Fetching: ${url}`);
+              const pageContent = await fetchWebPage(url);
 
-                // Notify frontend about the fetch
-                await sendSSE({
-                  type: "tool_status",
-                  tool: "web_fetch",
-                  status: "fetching",
-                  url,
-                });
-
-                // Execute the fetch
-                const pageContent = await fetchWebPage(url);
-
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: block.id,
-                  content: pageContent,
-                });
-              } else if (block.name === "web_search") {
-                // web_search is handled natively by Claude
-                // But if it shows up as a tool_use block, we need to handle it
-                // This shouldn't happen with the web_search_20250305 type
-                // but just in case:
-                toolResults.push({
-                  type: "tool_result",
-                  tool_use_id: block.id,
-                  content: "Search completed.",
-                });
-              }
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: pageContent,
+              });
+            } else if (block.name === "web_search") {
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: "Search completed.",
+              });
             }
           }
 
-          // If no tool calls, we're done
-          if (!hasToolUse) {
-            console.log(`[Loop ${loopCount}] No more tool calls. Done.`);
-            break;
-          }
+          // Build the clean content blocks for the conversation history
+          // (remove internal _inputJson field)
+          const cleanBlocks = contentBlocks.map((b) => {
+            const { _inputJson, ...rest } = b;
+            return rest;
+          });
 
           // Add assistant response + tool results to conversation
           currentMessages = [
             ...currentMessages,
-            { role: "assistant", content: response.content },
+            { role: "assistant", content: cleanBlocks },
             ...toolResults.map((tr) => ({ role: "user", content: [tr] })),
           ];
         }
