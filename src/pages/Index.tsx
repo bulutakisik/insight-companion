@@ -13,20 +13,26 @@ const Index = () => {
     whatsNext,
     inputDisabled,
     phase,
+    sessionLoaded,
     sendMessage,
     initGreeting,
+    loadSession,
   } = useGrowthDirector();
 
   useEffect(() => {
-    const timer = setTimeout(() => initGreeting(), 600);
-    return () => clearTimeout(timer);
-  }, [initGreeting]);
+    loadSession().then((restored) => {
+      if (!restored) {
+        const timer = setTimeout(() => initGreeting(), 600);
+        return () => clearTimeout(timer);
+      }
+    });
+  }, [loadSession, initGreeting]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       <TopBar />
       <div className="flex-1 grid grid-cols-2 min-h-0">
-        <ChatPanel items={chatItems} phase={phase} inputDisabled={inputDisabled} onSend={sendMessage} />
+        <ChatPanel items={chatItems} phase={phase} inputDisabled={inputDisabled || !sessionLoaded} onSend={sendMessage} />
         <StagePanel
           outputCards={outputCards}
           progressSteps={progressSteps}

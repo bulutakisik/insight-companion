@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { parseStreamChunk, StreamEvent } from "@/lib/streamParser";
 import { ChatMessage, StreamBlockData, StreamItem, OutputCard, ProgressStep, ConversationPhase } from "@/types/conversation";
 import { INITIAL_PROGRESS_STEPS } from "@/lib/stateMachine";
+import { supabase } from "@/integrations/supabase/client";
 
 type ChatItem =
   | { type: "message"; data: ChatMessage }
@@ -20,6 +22,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 export function useGrowthDirector() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
   const [outputCards, setOutputCards] = useState<OutputCard[]>([]);
   const [progressSteps, setProgressSteps] = useState<ProgressStep[]>(INITIAL_PROGRESS_STEPS);
@@ -27,6 +30,7 @@ export function useGrowthDirector() {
   const [whatsNext, setWhatsNext] = useState<WhatsNextData | null>(null);
   const [inputDisabled, setInputDisabled] = useState(true);
   const [phase, setPhase] = useState<ConversationPhase>(0);
+  const [sessionLoaded, setSessionLoaded] = useState(false);
 
   const conversationHistoryRef = useRef<{ role: string; content: string }[]>([]);
   const bufferRef = useRef("");
@@ -34,6 +38,98 @@ export function useGrowthDirector() {
   const streamBlockIdRef = useRef(0);
   const isStreamingRef = useRef(false);
   const fullTextRef = useRef("");
+  const sessionIdRef = useRef<string | null>(null);
+
+  // Save session state to Supabase
+  const saveSession = useCallback(async (
+    items: ChatItem[],
+    cards: OutputCard[],
+    steps: ProgressStep[],
+    whatsNextData: WhatsNextData | null,
+    currentPhase: ConversationPhase,
+    companyUrl?: string
+  ) => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+
+    const payload: Record<string, unknown> = {
+      chat_items: items,
+      output_cards: cards,
+      conversation_history: conversationHistoryRef.current,
+      current_phase: currentPhase,
+      progress_steps: steps,
+      whats_next: whatsNextData,
+    };
+    if (companyUrl) payload.company_url = companyUrl;
+
+    await supabase.from("growth_sessions").update(payload).eq("id", sid);
+  }, []);
+
+  // Create a new session and set URL param
+  const createSession = useCallback(async (companyUrl?: string) => {
+    const { data, error } = await supabase
+      .from("growth_sessions")
+      .insert({ company_url: companyUrl })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      console.error("Failed to create session:", error);
+      return null;
+    }
+
+    sessionIdRef.current = data.id;
+    setSearchParams({ session: data.id }, { replace: true });
+    return data.id;
+  }, [setSearchParams]);
+
+  // Load existing session from URL
+  const loadSession = useCallback(async () => {
+    const sessionParam = searchParams.get("session");
+    if (!sessionParam) {
+      setSessionLoaded(true);
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from("growth_sessions")
+      .select("*")
+      .eq("id", sessionParam)
+      .single();
+
+    if (error || !data) {
+      console.error("Session not found:", error);
+      setSessionLoaded(true);
+      return false;
+    }
+
+    sessionIdRef.current = data.id;
+
+    // Restore state
+    const restoredItems = (data.chat_items as unknown as ChatItem[]) || [];
+    const restoredCards = (data.output_cards as unknown as OutputCard[]) || [];
+    const restoredSteps = (data.progress_steps as unknown as ProgressStep[]) || [];
+    const restoredHistory = (data.conversation_history as unknown as { role: string; content: string }[]) || [];
+    const restoredWhatsNext = data.whats_next as unknown as WhatsNextData | null;
+    const restoredPhase = (data.current_phase ?? 0) as ConversationPhase;
+
+    setChatItems(restoredItems);
+    setOutputCards(restoredCards);
+    if (restoredSteps.length > 0) {
+      setProgressSteps(restoredSteps);
+      setProgressVisible(true);
+    }
+    setWhatsNext(restoredWhatsNext);
+    setPhase(restoredPhase);
+    conversationHistoryRef.current = restoredHistory;
+
+    // Restore counter to avoid ID collisions
+    msgIdCounter = restoredItems.length + 100;
+    streamBlockIdRef.current = restoredItems.filter(i => i.type === "stream").length + 10;
+
+    setSessionLoaded(true);
+    return true;
+  }, [searchParams]);
 
   // Add initial greeting
   const initGreeting = useCallback(() => {
@@ -50,7 +146,6 @@ export function useGrowthDirector() {
   const handleEvent = useCallback((event: StreamEvent) => {
     switch (event.type) {
       case "chat_text":
-        // Update or create the last director message
         setChatItems((prev) => {
           const last = prev[prev.length - 1];
           if (last?.type === "message" && last.data.sender === "director" && last.data.id.startsWith("stream-")) {
@@ -61,7 +156,6 @@ export function useGrowthDirector() {
             };
             return updated;
           }
-          // Create new director message
           return [
             ...prev,
             {
@@ -120,7 +214,6 @@ export function useGrowthDirector() {
           }
           return prev;
         });
-        // Reset for next stream block
         currentStreamItemsRef.current = [];
         streamBlockIdRef.current++;
         break;
@@ -128,7 +221,6 @@ export function useGrowthDirector() {
       case "output":
         console.log("[Hook] Received output event:", event.outputType, event.data);
         setOutputCards((prev) => {
-          // Dedup: only add each output type once
           if (prev.some((c) => c.type === event.outputType)) {
             console.log("[Hook] Skipping duplicate output type:", event.outputType);
             return prev;
@@ -159,6 +251,13 @@ export function useGrowthDirector() {
     isStreamingRef.current = true;
     setInputDisabled(true);
 
+    // Create session on first message if none exists
+    const isFirstMessage = conversationHistoryRef.current.length === 0;
+    if (!sessionIdRef.current) {
+      const companyUrl = isFirstMessage ? userMessage.trim() : undefined;
+      await createSession(companyUrl);
+    }
+
     // Add user message to chat
     const userMsg: ChatMessage = {
       id: nextId(),
@@ -168,7 +267,6 @@ export function useGrowthDirector() {
     };
     setChatItems((prev) => [...prev, { type: "message", data: userMsg }]);
 
-    // Update conversation history
     conversationHistoryRef.current = [
       ...conversationHistoryRef.current,
       { role: "user", content: userMessage },
@@ -243,6 +341,28 @@ export function useGrowthDirector() {
         ...conversationHistoryRef.current,
         { role: "assistant", content: fullTextRef.current },
       ];
+
+      // Save session after response completes — read latest state
+      setChatItems((latestItems) => {
+        setOutputCards((latestCards) => {
+          setProgressSteps((latestSteps) => {
+            setWhatsNext((latestWhatsNext) => {
+              saveSession(
+                latestItems,
+                latestCards,
+                latestSteps,
+                latestWhatsNext,
+                phase,
+                isFirstMessage ? userMessage.trim() : undefined
+              );
+              return latestWhatsNext;
+            });
+            return latestSteps;
+          });
+          return latestCards;
+        });
+        return latestItems;
+      });
     } catch (error) {
       console.error("Stream error:", error);
       setChatItems((prev) => [
@@ -261,7 +381,7 @@ export function useGrowthDirector() {
       isStreamingRef.current = false;
       setInputDisabled(false);
     }
-  }, [handleEvent]);
+  }, [handleEvent, createSession, saveSession, phase]);
 
   return {
     chatItems,
@@ -271,7 +391,9 @@ export function useGrowthDirector() {
     whatsNext,
     inputDisabled,
     phase,
+    sessionLoaded,
     sendMessage,
     initGreeting,
+    loadSession,
   };
 }

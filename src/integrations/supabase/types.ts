@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      growth_sessions: {
+        Row: {
+          chat_items: Json | null
+          company_url: string | null
+          conversation_history: Json | null
+          created_at: string | null
+          current_phase: number | null
+          id: string
+          output_cards: Json | null
+          progress_steps: Json | null
+          updated_at: string | null
+          whats_next: Json | null
+        }
+        Insert: {
+          chat_items?: Json | null
+          company_url?: string | null
+          conversation_history?: Json | null
+          created_at?: string | null
+          current_phase?: number | null
+          id?: string
+          output_cards?: Json | null
+          progress_steps?: Json | null
+          updated_at?: string | null
+          whats_next?: Json | null
+        }
+        Update: {
+          chat_items?: Json | null
+          company_url?: string | null
+          conversation_history?: Json | null
+          created_at?: string | null
+          current_phase?: number | null
+          id?: string
+          output_cards?: Json | null
+          progress_steps?: Json | null
+          updated_at?: string | null
+          whats_next?: Json | null
+        }
+        Relationships: []
+      }
       sessions: {
         Row: {
           conversation_phase: number
