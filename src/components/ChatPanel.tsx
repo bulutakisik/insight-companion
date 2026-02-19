@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback, KeyboardEvent } from "react";
+import { useRef, useEffect, useState, KeyboardEvent } from "react";
 import { ChatMessage, StreamBlockData, ConversationPhase } from "@/types/conversation";
 import { getPlaceholderForPhase } from "@/lib/stateMachine";
 import { ChevronDown } from "lucide-react";
@@ -20,40 +20,50 @@ const ChatPanel = ({ items, phase, inputDisabled, onSend }: ChatPanelProps) => {
   const [inputValue, setInputValue] = useState("");
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isNearBottomRef = useRef(true);
+  const userHasScrolledUpRef = useRef(false);
+  const prevScrollTopRef = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const checkNearBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-  }, []);
-
-  const checkShowButton = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const far = el.scrollHeight - el.scrollTop - el.clientHeight > 200;
-    setShowScrollBtn(far);
-  }, []);
-
+  // Debounced scroll handler
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+
     const onScroll = () => {
-      isNearBottomRef.current = checkNearBottom();
-      checkShowButton();
-    };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [checkNearBottom, checkShowButton]);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
+        const scrolledUp = el.scrollTop < prevScrollTopRef.current;
 
+        if (scrolledUp && !atBottom) {
+          userHasScrolledUpRef.current = true;
+          setShowScrollBtn(true);
+        } else if (atBottom) {
+          userHasScrolledUpRef.current = false;
+          setShowScrollBtn(false);
+        }
+
+        prevScrollTopRef.current = el.scrollTop;
+      }, 100);
+    };
+
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  // Auto-scroll only if user hasn't scrolled up
   useEffect(() => {
-    if (isNearBottomRef.current && scrollRef.current) {
+    if (!userHasScrolledUpRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    checkShowButton();
-  }, [items, checkShowButton]);
+  }, [items]);
 
   const scrollToBottom = () => {
+    userHasScrolledUpRef.current = false;
+    setShowScrollBtn(false);
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   };
 
