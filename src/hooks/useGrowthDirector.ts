@@ -123,9 +123,12 @@ export function useGrowthDirector() {
     setPhase(restoredPhase);
     conversationHistoryRef.current = restoredHistory;
 
-    // Restore counter to avoid ID collisions
+    // Restore counters to avoid ID collisions
     msgIdCounter = restoredItems.length + 100;
     streamBlockIdRef.current = restoredItems.filter(i => i.type === "stream").length + 10;
+
+    // Enable input if session was restored (user can continue chatting)
+    setInputDisabled(false);
 
     setSessionLoaded(true);
     return true;
@@ -148,7 +151,8 @@ export function useGrowthDirector() {
       case "chat_text":
         setChatItems((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.type === "message" && last.data.sender === "director" && last.data.id.startsWith("stream-")) {
+          const currentRoundId = `stream-round-${streamBlockIdRef.current}`;
+          if (last?.type === "message" && last.data.sender === "director" && last.data.id === currentRoundId) {
             const updated = [...prev];
             updated[updated.length - 1] = {
               type: "message",
@@ -161,7 +165,7 @@ export function useGrowthDirector() {
             {
               type: "message",
               data: {
-                id: `stream-${nextId()}`,
+                id: currentRoundId,
                 sender: "director" as const,
                 html: event.text,
                 timestamp: Date.now(),
