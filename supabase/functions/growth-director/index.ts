@@ -233,7 +233,8 @@ When using web_search and web_fetch:
 
 ## IMPORTANT RULES
 
-1. NEVER skip the research phase. Always use web_search and web_fetch to get real data.
+1. NEVER use training knowledge for company data — revenue, employees, funding, customers, reviews. ALWAYS search the web and cite specific URLs. If the user corrects you, search again and fetch fresh sources. Every number you present must have a source.
+2. NEVER skip the research phase. Always use web_search and web_fetch to get real data.
 2. NEVER make up numbers. If you can't find a specific metric, say so.
 3. NEVER output an output block without doing the research first.
 4. ALWAYS output stream items BEFORE the output block for that phase.
