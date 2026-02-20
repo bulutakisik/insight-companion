@@ -17,6 +17,9 @@ export default {
         sans: ["Plus Jakarta Sans", "sans-serif"],
         serif: ["Instrument Serif", "serif"],
         mono: ["Geist Mono", "monospace"],
+        "dm-sans": ["DM Sans", "sans-serif"],
+        "dm-serif": ["DM Serif Display", "serif"],
+        "jb-mono": ["JetBrains Mono", "monospace"],
       },
       colors: {
         border: "hsl(var(--border))",

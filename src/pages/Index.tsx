@@ -1,10 +1,13 @@
 import { useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import TopBar from "@/components/TopBar";
 import ChatPanel from "@/components/ChatPanel";
 import StagePanel from "@/components/StagePanel";
 import { useGrowthDirector } from "@/hooks/useGrowthDirector";
 
 const Index = () => {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const {
     chatItems,
     outputCards,
@@ -18,6 +21,16 @@ const Index = () => {
     initGreeting,
     loadSession,
   } = useGrowthDirector();
+
+  // Redirect to dashboard if ?dashboard=true
+  useEffect(() => {
+    const sessionId = searchParams.get("session");
+    const isDashboard = searchParams.get("dashboard") === "true";
+    if (sessionId && isDashboard) {
+      navigate(`/dashboard?session=${sessionId}&dashboard=true`, { replace: true });
+      return;
+    }
+  }, [searchParams, navigate]);
 
   useEffect(() => {
     loadSession().then((restored) => {

@@ -1,0 +1,31 @@
+export interface AgentInfo {
+  key: string;
+  initials: string;
+  name: string;
+  color: string;
+  role: string;
+  hasBorder?: boolean;
+}
+
+export interface SprintTask {
+  id: string;
+  sprintIndex: number;
+  agent: AgentInfo;
+  title: string;
+  status: "queued" | "in_progress" | "completed";
+  description: string;
+}
+
+export interface SprintData {
+  number: string;
+  title: string;
+  tasks: SprintTask[];
+}
+
+export interface DashboardSession {
+  id: string;
+  companyUrl: string;
+  chatItems: any[];
+  conversationHistory: any[];
+  outputCards: any[];
+}
