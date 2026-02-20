@@ -86,6 +86,24 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* Dashboard-specific tokens */
+    --dash-bg: 40 6% 97%;
+    --dash-card: 0 0% 100%;
+    --dash-sidebar: 0 0% 10%;
+    --dash-sidebar-hover: 0 0% 16.5%;
+    --dash-text-secondary: 0 0% 42%;
+    --dash-text-tertiary: 0 0% 61%;
+    --dash-text-inverse-secondary: 0 0% 63%;
+    --dash-accent: 153 43% 36%;
+    --dash-accent-light: 133 60% 90%;
+    --dash-accent-bg: 140 60% 97%;
+    --dash-orange: 24 72% 53%;
+    --dash-orange-light: 36 96% 95%;
+    --dash-blue: 217 91% 60%;
+    --dash-blue-light: 214 100% 97%;
+    --dash-border: 40 12% 91%;
+    --dash-border-light: 40 10% 94%;
   }
 }
 
@@ -128,6 +146,39 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes stream-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 

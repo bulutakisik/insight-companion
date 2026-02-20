@@ -1,14 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
+import KanbanBoard from "@/components/dashboard/KanbanBoard";
+import SprintTimeline from "@/components/dashboard/SprintTimeline";
+import ChatDrawer from "@/components/dashboard/ChatDrawer";
+import TaskDetailModal from "@/components/dashboard/TaskDetailModal";
+import type { SprintTask, DashboardSession, AgentInfo } from "@/types/dashboard";
+
+const AGENTS: AgentInfo[] = [
+  { key: "pmm", initials: "PM", name: "PMM Agent", color: "#3B82F6", role: "Positioning, messaging, buyer personas" },
+  { key: "seo", initials: "SE", name: "SEO Agent", color: "#10B981", role: "Technical SEO, keyword research" },
+  { key: "content", initials: "CN", name: "Content Agent", color: "#8B5CF6", role: "Blog posts, case studies" },
+  { key: "dev", initials: "DV", name: "Dev Agent", color: "#1A1A1A", role: "Frontend code, landing pages", hasBorder: true },
+  { key: "growth", initials: "GR", name: "Growth Agent", color: "#F59E0B", role: "Conversion optimization, funnel analysis" },
+  { key: "perf", initials: "PF", name: "Perf Agent", color: "#EF4444", role: "Performance optimization" },
+  { key: "social", initials: "SO", name: "Social Agent", color: "#EC4899", role: "Social media, LinkedIn" },
+  { key: "intern", initials: "IN", name: "Intern Agent", color: "#6B7280", role: "Analytics setup, tracking" },
+];
 
 const Dashboard = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<DashboardSession | null>(null);
+  const [activeSprint, setActiveSprint] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatTab, setChatTab] = useState<"live" | "history">("live");
+  const [selectedTask, setSelectedTask] = useState<SprintTask | null>(null);
 
   useEffect(() => {
     const sessionId = searchParams.get("session");
+    const isDashboard = searchParams.get("dashboard") === "true";
+
     if (!sessionId) {
       navigate("/");
       return;
@@ -16,41 +41,155 @@ const Dashboard = () => {
 
     supabase
       .from("growth_sessions")
-      .select("paid")
+      .select("*")
       .eq("id", sessionId)
       .single()
-      .then(({ data }) => {
-        if (!(data as any)?.paid) {
-          navigate(`/?session=${sessionId}`);
-        } else {
-          setLoading(false);
+      .then(({ data, error }) => {
+        if (error || !data) {
+          navigate("/");
+          return;
         }
+        // Allow access if paid OR if ?dashboard=true (testing shortcut)
+        if (!(data as any)?.paid && !isDashboard) {
+          navigate(`/?session=${sessionId}`);
+          return;
+        }
+        setSession({
+          id: data.id,
+          companyUrl: data.company_url || "",
+          chatItems: (data.chat_items as any[]) || [],
+          conversationHistory: (data.conversation_history as any[]) || [],
+          outputCards: (data.output_cards as any[]) || [],
+        });
+        setLoading(false);
       });
   }, [searchParams, navigate]);
 
+  // Extract sprints and tasks from work_statement output card
+  const { sprints, allTasks } = useMemo(() => {
+    if (!session) return { sprints: [], allTasks: [] };
+
+    const wsCard = session.outputCards.find((c: any) => c.type === "work_statement");
+    const wsData = (wsCard as any)?.data;
+    const rawSprints = wsData?.sprints || [];
+
+    const sprints = rawSprints.map((s: any, si: number) => ({
+      number: s.number || `S${si + 1}`,
+      title: s.title || `Sprint ${si + 1}`,
+      tasks: (s.tasks || []).map((t: any, ti: number) => {
+        const agentKey = (t.agentClass || t.agent || "").toLowerCase().replace(/\s+agent$/i, "");
+        const agent = AGENTS.find(a => a.key === agentKey) || AGENTS[7];
+        return {
+          id: `${si}-${ti}`,
+          sprintIndex: si,
+          agent,
+          title: t.task || "Untitled task",
+          status: "queued" as const,
+          description: t.task || "",
+        };
+      }),
+    }));
+
+    const allTasks = sprints.flatMap((s: any) => s.tasks);
+    return { sprints, allTasks };
+  }, [session]);
+
+  const currentSprintTasks = useMemo(() => {
+    return allTasks.filter((t: SprintTask) => t.sprintIndex === activeSprint);
+  }, [allTasks, activeSprint]);
+
+  const tasksByStatus = useMemo(() => {
+    const inProgress = currentSprintTasks.filter((t: SprintTask) => t.status === "in_progress");
+    const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed");
+    const queued = currentSprintTasks.filter((t: SprintTask) => t.status === "queued");
+    return { inProgress, completed, queued };
+  }, [currentSprintTasks]);
+
+  // Get company name from URL
+  const companyName = useMemo(() => {
+    if (!session?.companyUrl) return "Company";
+    try {
+      const url = session.companyUrl.replace(/^https?:\/\//, "").replace(/^www\./, "");
+      return url.split(".")[0].charAt(0).toUpperCase() + url.split(".")[0].slice(1);
+    } catch {
+      return session.companyUrl;
+    }
+  }, [session]);
+
+  // Derive agent statuses from tasks
+  const agentStatuses = useMemo(() => {
+    const map: Record<string, { status: "working" | "idle" | "done"; task: string }> = {};
+    for (const agent of AGENTS) {
+      const agentTasks = allTasks.filter((t: SprintTask) => t.agent.key === agent.key);
+      if (agentTasks.some((t: SprintTask) => t.status === "in_progress")) {
+        const active = agentTasks.find((t: SprintTask) => t.status === "in_progress")!;
+        map[agent.key] = { status: "working", task: active.title };
+      } else if (agentTasks.some((t: SprintTask) => t.status === "completed")) {
+        map[agent.key] = { status: "done", task: "Tasks complete" };
+      } else if (agentTasks.length > 0) {
+        map[agent.key] = { status: "idle", task: "Queued" };
+      } else {
+        map[agent.key] = { status: "idle", task: "No tasks" };
+      }
+    }
+    return map;
+  }, [allTasks]);
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-foreground-3 text-sm animate-pulse">Loading…</div>
+      <div className="min-h-screen bg-[hsl(var(--dash-bg))] flex items-center justify-center">
+        <div className="text-[hsl(var(--dash-text-tertiary))] text-sm animate-pulse font-dm-sans">Loading…</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="max-w-lg w-full text-center space-y-6">
-        <div className="text-5xl">🚀</div>
-        <h1 className="font-serif text-3xl font-normal text-foreground">
-          Sprint 1 is underway
-        </h1>
-        <p className="text-foreground-3 text-base leading-relaxed">
-          Your growth team is working. Weekly report drops Friday.
-        </p>
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium">
-          <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-          Agents active
-        </div>
+    <div className="h-screen flex overflow-hidden font-dm-sans" style={{ background: "hsl(var(--dash-bg))" }}>
+      <DashboardSidebar
+        companyName={companyName}
+        companyUrl={session?.companyUrl || ""}
+        agents={AGENTS}
+        agentStatuses={agentStatuses}
+        onDirectorClick={() => setChatOpen(true)}
+      />
+
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <DashboardTopBar
+          sprintTitle={sprints[activeSprint]?.title || "Sprint 1"}
+          sprintNumber={activeSprint + 1}
+          completed={tasksByStatus.completed.length}
+          inProgress={tasksByStatus.inProgress.length}
+          queued={tasksByStatus.queued.length}
+          total={currentSprintTasks.length}
+        />
+
+        <KanbanBoard
+          inProgress={tasksByStatus.inProgress}
+          completed={tasksByStatus.completed}
+          queued={tasksByStatus.queued}
+          onTaskClick={setSelectedTask}
+        />
+
+        <SprintTimeline
+          sprints={sprints}
+          activeSprint={activeSprint}
+          onSprintClick={setActiveSprint}
+        />
+
+        <ChatDrawer
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+          activeTab={chatTab}
+          onTabChange={setChatTab}
+          chatItems={session?.chatItems || []}
+        />
       </div>
+
+      <TaskDetailModal
+        task={selectedTask}
+        sprintLabel={sprints[activeSprint]?.number || "S1"}
+        onClose={() => setSelectedTask(null)}
+      />
     </div>
   );
 };
