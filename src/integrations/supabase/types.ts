@@ -23,6 +23,7 @@ export type Database = {
           current_phase: number | null
           id: string
           output_cards: Json | null
+          paid: boolean
           progress_steps: Json | null
           updated_at: string | null
           whats_next: Json | null
@@ -35,6 +36,7 @@ export type Database = {
           current_phase?: number | null
           id?: string
           output_cards?: Json | null
+          paid?: boolean
           progress_steps?: Json | null
           updated_at?: string | null
           whats_next?: Json | null
@@ -47,6 +49,7 @@ export type Database = {
           current_phase?: number | null
           id?: string
           output_cards?: Json | null
+          paid?: boolean
           progress_steps?: Json | null
           updated_at?: string | null
           whats_next?: Json | null

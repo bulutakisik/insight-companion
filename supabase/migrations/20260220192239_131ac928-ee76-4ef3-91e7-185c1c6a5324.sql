@@ -1,0 +1,1 @@
+ALTER TABLE public.growth_sessions ADD COLUMN paid boolean NOT NULL DEFAULT false;
