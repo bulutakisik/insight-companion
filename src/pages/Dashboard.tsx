@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
@@ -64,9 +64,8 @@ const Dashboard = () => {
   }, [searchParams, navigate]);
 
   // Fetch tasks from sprint_tasks table
-  useEffect(() => {
+  const fetchTasks = useCallback(() => {
     if (!session) return;
-
     supabase
       .from("sprint_tasks")
       .select("*")
@@ -74,12 +73,37 @@ const Dashboard = () => {
       .order("sprint_number")
       .order("created_at")
       .then(({ data }) => {
-        if (data && data.length > 0) {
-          setDbTasks(data);
-        }
+        if (data) setDbTasks(data);
         setLoading(false);
       });
   }, [session]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
+
+  // Poll every 5s while any task is in_progress or queued
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const hasActive = dbTasks.some(t => t.status === "in_progress" || t.status === "queued");
+    if (hasActive && session) {
+      if (!pollingRef.current) {
+        pollingRef.current = setInterval(fetchTasks, 5000);
+      }
+    } else {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    }
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [dbTasks, session, fetchTasks]);
 
   // Build sprints from DB tasks, falling back to output_cards
   const { sprints, allTasks } = useMemo(() => {
@@ -215,6 +239,8 @@ const Dashboard = () => {
           inProgress={tasksByStatus.inProgress.length}
           queued={tasksByStatus.queued.length}
           total={currentSprintTasks.length}
+          sessionId={session?.id}
+          onSprintStarted={fetchTasks}
         />
 
         <KanbanBoard
