@@ -86,6 +86,68 @@ export type Database = {
         }
         Relationships: []
       }
+      sprint_tasks: {
+        Row: {
+          agent: string
+          agent_brief: Json | null
+          completed_at: string | null
+          created_at: string | null
+          deliverables: Json | null
+          error_message: string | null
+          id: string
+          output_text: string | null
+          session_id: string | null
+          sprint_number: number
+          started_at: string | null
+          status: string
+          task_description: string | null
+          task_title: string
+          updated_at: string | null
+        }
+        Insert: {
+          agent: string
+          agent_brief?: Json | null
+          completed_at?: string | null
+          created_at?: string | null
+          deliverables?: Json | null
+          error_message?: string | null
+          id?: string
+          output_text?: string | null
+          session_id?: string | null
+          sprint_number?: number
+          started_at?: string | null
+          status?: string
+          task_description?: string | null
+          task_title: string
+          updated_at?: string | null
+        }
+        Update: {
+          agent?: string
+          agent_brief?: Json | null
+          completed_at?: string | null
+          created_at?: string | null
+          deliverables?: Json | null
+          error_message?: string | null
+          id?: string
+          output_text?: string | null
+          session_id?: string | null
+          sprint_number?: number
+          started_at?: string | null
+          status?: string
+          task_description?: string | null
+          task_title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sprint_tasks_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "growth_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

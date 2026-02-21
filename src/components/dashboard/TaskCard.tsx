@@ -2,7 +2,7 @@ import type { SprintTask } from "@/types/dashboard";
 
 interface Props {
   task: SprintTask;
-  variant: "in_progress" | "completed" | "queued";
+  variant: "in_progress" | "completed" | "queued" | "failed";
   index: number;
   onClick: () => void;
 }
@@ -71,7 +71,7 @@ const TaskCard = ({ task, variant, index, onClick }: Props) => {
       {/* Footer */}
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-jb-mono" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
-          {variant === "queued" ? "Waiting" : variant === "in_progress" ? "In progress" : "Completed"}
+          {variant === "queued" ? "Waiting" : variant === "in_progress" ? "In progress" : variant === "failed" ? "Failed" : "Completed"}
         </span>
       </div>
     </div>

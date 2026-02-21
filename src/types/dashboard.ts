@@ -12,8 +12,13 @@ export interface SprintTask {
   sprintIndex: number;
   agent: AgentInfo;
   title: string;
-  status: "queued" | "in_progress" | "completed";
+  status: "queued" | "in_progress" | "completed" | "failed";
   description: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  deliverables?: any[];
+  outputText?: string | null;
+  errorMessage?: string | null;
 }
 
 export interface SprintData {

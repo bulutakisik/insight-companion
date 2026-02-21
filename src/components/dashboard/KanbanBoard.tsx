@@ -25,7 +25,7 @@ interface ColumnProps {
   count: number;
   dotColor: string;
   tasks: SprintTask[];
-  variant: "in_progress" | "completed" | "queued";
+  variant: "in_progress" | "completed" | "queued" | "failed";
   onTaskClick: (task: SprintTask) => void;
 }
 
