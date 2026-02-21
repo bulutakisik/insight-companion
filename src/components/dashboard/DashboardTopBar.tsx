@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+
 interface Props {
   sprintTitle: string;
   sprintNumber: number;
@@ -5,9 +9,30 @@ interface Props {
   inProgress: number;
   queued: number;
   total: number;
+  sessionId?: string;
+  onSprintStarted?: () => void;
 }
 
-const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, total }: Props) => {
+const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, total, sessionId, onSprintStarted }: Props) => {
+  const [running, setRunning] = useState(false);
+
+  const handleRunSprint = async () => {
+    if (!sessionId || running) return;
+    setRunning(true);
+    toast.info("Starting sprint… Tasks will update in real-time.");
+    try {
+      const { error } = await supabase.functions.invoke("run-sprint", {
+        body: { session_id: sessionId, sprint_number: sprintNumber },
+      });
+      if (error) throw error;
+      toast.success("Sprint completed!");
+    } catch (e: any) {
+      toast.error(`Sprint failed: ${e.message}`);
+    } finally {
+      setRunning(false);
+    }
+    onSprintStarted?.();
+  };
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   const circumference = 2 * Math.PI * 20; // r=20
   const offset = circumference - (pct / 100) * circumference;
@@ -38,6 +63,22 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
         </div>
         <Divider />
         <Stat value="7d" label="Remaining" />
+        {sessionId && queued > 0 && (
+          <>
+            <Divider />
+            <button
+              onClick={handleRunSprint}
+              disabled={running}
+              className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+              style={{
+                background: running ? "hsl(var(--dash-border))" : "hsl(var(--dash-accent))",
+                color: running ? "hsl(var(--dash-text-tertiary))" : "white",
+              }}
+            >
+              {running ? "Running…" : "▶ Run Sprint"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

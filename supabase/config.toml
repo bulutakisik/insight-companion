@@ -2,3 +2,9 @@ project_id = "vnjvbpwwmnxcmtyvlpww"
 
 [functions.growth-director]
 verify_jwt = false
+
+[functions.run-agent]
+verify_jwt = false
+
+[functions.run-sprint]
+verify_jwt = false
