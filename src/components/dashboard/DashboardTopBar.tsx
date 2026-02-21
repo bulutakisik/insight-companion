@@ -25,7 +25,7 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
         body: { session_id: sessionId, sprint_number: sprintNumber },
       });
       if (error) throw error;
-      toast.success("Sprint completed!");
+      toast.success("Sprint started! Tasks will auto-continue.");
     } catch (e: any) {
       toast.error(`Sprint failed: ${e.message}`);
     } finally {

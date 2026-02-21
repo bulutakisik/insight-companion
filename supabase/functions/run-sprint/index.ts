@@ -61,61 +61,47 @@ serve(async (req) => {
     const runAgentUrl = `${SUPABASE_URL}/functions/v1/run-agent`;
     const authHeader = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
 
-    let completed = 0;
-    let failed = 0;
-    const results: any[] = [];
+    // Single-task execution to avoid timeouts
 
-    // Run tasks sequentially to avoid rate limits
-    for (const task of tasks) {
-      console.log(`[Puppeteer] Running task ${completed + failed + 1}/${tasks.length}: ${task.task_title} (${task.agent})`);
+    // Pick only the FIRST queued task to avoid timeout
+    const task = tasks[0];
+    console.log(`[Puppeteer] Running single task: ${task.task_title} (${task.agent})`);
 
-      try {
-        const response = await fetch(runAgentUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": authHeader,
-          },
-          body: JSON.stringify({
-            task_id: task.id,
-            session_id: session_id,
-          }),
-        });
+    try {
+      const response = await fetch(runAgentUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          task_id: task.id,
+          session_id: session_id,
+        }),
+      });
 
-        const result = await response.json();
+      const result = await response.json();
 
-        if (response.ok && result.success) {
-          completed++;
-          results.push({ task_id: task.id, agent: task.agent, status: "completed" });
-          console.log(`[Puppeteer] ✓ Completed: ${task.task_title}`);
-        } else {
-          failed++;
-          results.push({ task_id: task.id, agent: task.agent, status: "failed", error: result.error });
-          console.error(`[Puppeteer] ✗ Failed: ${task.task_title} — ${result.error}`);
-        }
-      } catch (e) {
-        failed++;
-        results.push({ task_id: task.id, agent: task.agent, status: "failed", error: e.message });
-        console.error(`[Puppeteer] ✗ Error: ${task.task_title} — ${e.message}`);
+      if (response.ok && result.success) {
+        console.log(`[Puppeteer] ✓ Completed: ${task.task_title}`);
+        return new Response(
+          JSON.stringify({ success: true, task_id: task.id, status: "completed", remaining: tasks.length - 1 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } else {
+        console.error(`[Puppeteer] ✗ Failed: ${task.task_title} — ${result.error}`);
+        return new Response(
+          JSON.stringify({ success: false, task_id: task.id, status: "failed", error: result.error, remaining: tasks.length - 1 }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-
-      // Small delay between tasks to be kind to rate limits
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    } catch (e) {
+      console.error(`[Puppeteer] ✗ Error: ${task.task_title} — ${e.message}`);
+      return new Response(
+        JSON.stringify({ success: false, task_id: task.id, status: "failed", error: e.message, remaining: tasks.length - 1 }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
-
-    console.log(`[Puppeteer] Sprint ${sprint_number} complete: ${completed} succeeded, ${failed} failed`);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        sprint_number,
-        total_tasks: tasks.length,
-        completed,
-        failed,
-        results,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
   } catch (e) {
     console.error("[Puppeteer] Error:", e);
     return new Response(

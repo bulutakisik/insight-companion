@@ -83,10 +83,40 @@ const Dashboard = () => {
   }, [fetchTasks]);
 
   // Poll every 5s while any task is in_progress or queued
+  // Auto-continue: when a task completes and queued tasks remain, call run-sprint again
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevTasksRef = useRef<any[]>([]);
+
+  const triggerNextTask = useCallback(async () => {
+    if (!session) return;
+    try {
+      await supabase.functions.invoke("run-sprint", {
+        body: { session_id: session.id, sprint_number: 1 },
+      });
+    } catch (e) {
+      console.error("Auto-continue failed:", e);
+    }
+  }, [session]);
 
   useEffect(() => {
     const hasActive = dbTasks.some(t => t.status === "in_progress" || t.status === "queued");
+
+    // Auto-continue: detect task completion and trigger next
+    if (prevTasksRef.current.length > 0 && dbTasks.length > 0) {
+      const prevInProgress = prevTasksRef.current.filter(t => t.status === "in_progress");
+      const nowCompleted = dbTasks.filter(t => t.status === "completed" || t.status === "failed");
+      const justFinished = prevInProgress.some(p =>
+        nowCompleted.some(c => c.id === p.id && p.status === "in_progress")
+      );
+      const hasQueued = dbTasks.some(t => t.status === "queued");
+      const noneInProgress = !dbTasks.some(t => t.status === "in_progress");
+
+      if (justFinished && hasQueued && noneInProgress) {
+        triggerNextTask();
+      }
+    }
+    prevTasksRef.current = dbTasks;
+
     if (hasActive && session) {
       if (!pollingRef.current) {
         pollingRef.current = setInterval(fetchTasks, 5000);
@@ -103,7 +133,7 @@ const Dashboard = () => {
         pollingRef.current = null;
       }
     };
-  }, [dbTasks, session, fetchTasks]);
+  }, [dbTasks, session, fetchTasks, triggerNextTask]);
 
   // Build sprints from DB tasks, falling back to output_cards
   const { sprints, allTasks } = useMemo(() => {
