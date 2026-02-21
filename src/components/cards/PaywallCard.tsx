@@ -32,10 +32,45 @@ const PaywallCard = ({ data }: PaywallCardProps) => {
     setSimulating(true);
     const sessionId = searchParams.get("session");
     if (sessionId) {
+      // Mark session as paid
       await supabase
         .from("growth_sessions")
         .update({ paid: true } as any)
         .eq("id", sessionId);
+
+      // Read output_cards to seed sprint_tasks
+      const { data: sessionData } = await supabase
+        .from("growth_sessions")
+        .select("output_cards")
+        .eq("id", sessionId)
+        .single();
+
+      if (sessionData?.output_cards) {
+        const cards = sessionData.output_cards as any[];
+        const wsCard = cards.find((c: any) => c.type === "work_statement");
+        const sprints = wsCard?.data?.sprints || [];
+
+        const rows: any[] = [];
+        for (const sprint of sprints) {
+          const sprintNum = typeof sprint.number === "number"
+            ? sprint.number
+            : parseInt(String(sprint.number).replace(/\D/g, ""), 10) || 1;
+          for (const task of sprint.tasks || []) {
+            rows.push({
+              session_id: sessionId,
+              sprint_number: sprintNum,
+              agent: task.agentClass || task.agent || "Intern",
+              task_title: task.task || "Untitled",
+              task_description: task.task || "",
+              status: "queued",
+            });
+          }
+        }
+
+        if (rows.length > 0) {
+          await supabase.from("sprint_tasks").insert(rows);
+        }
+      }
     }
     navigate("/dashboard" + (sessionId ? `?session=${sessionId}` : ""));
   };

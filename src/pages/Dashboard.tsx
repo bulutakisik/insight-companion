@@ -29,7 +29,7 @@ const Dashboard = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatTab, setChatTab] = useState<"live" | "history">("live");
   const [selectedTask, setSelectedTask] = useState<SprintTask | null>(null);
-
+  const [dbTasks, setDbTasks] = useState<any[]>([]);
   useEffect(() => {
     const sessionId = searchParams.get("session");
     const isDashboard = searchParams.get("dashboard") === "true";
@@ -49,7 +49,6 @@ const Dashboard = () => {
           navigate("/");
           return;
         }
-        // Allow access if paid OR if ?dashboard=true (testing shortcut)
         if (!(data as any)?.paid && !isDashboard) {
           navigate(`/?session=${sessionId}`);
           return;
@@ -61,14 +60,69 @@ const Dashboard = () => {
           conversationHistory: (data.conversation_history as any[]) || [],
           outputCards: (data.output_cards as any[]) || [],
         });
-        setLoading(false);
       });
   }, [searchParams, navigate]);
 
-  // Extract sprints and tasks from work_statement output card
+  // Fetch tasks from sprint_tasks table
+  useEffect(() => {
+    if (!session) return;
+
+    supabase
+      .from("sprint_tasks")
+      .select("*")
+      .eq("session_id", session.id)
+      .order("sprint_number")
+      .order("created_at")
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setDbTasks(data);
+        }
+        setLoading(false);
+      });
+  }, [session]);
+
+  // Build sprints from DB tasks, falling back to output_cards
   const { sprints, allTasks } = useMemo(() => {
     if (!session) return { sprints: [], allTasks: [] };
 
+    if (dbTasks.length > 0) {
+      // Group DB tasks by sprint_number
+      const sprintMap = new Map<number, any[]>();
+      for (const t of dbTasks) {
+        const sn = t.sprint_number;
+        if (!sprintMap.has(sn)) sprintMap.set(sn, []);
+        sprintMap.get(sn)!.push(t);
+      }
+
+      const sprints = Array.from(sprintMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([num, tasks], si) => ({
+          number: `S${num}`,
+          title: `Sprint ${num}`,
+          tasks: tasks.map((t: any, ti: number) => {
+            const agentKey = (t.agent || "").toLowerCase().replace(/\s+agent$/i, "");
+            const agent = AGENTS.find(a => a.key === agentKey) || AGENTS[7];
+            return {
+              id: t.id,
+              sprintIndex: si,
+              agent,
+              title: t.task_title,
+              status: t.status as SprintTask["status"],
+              description: t.task_description || "",
+              startedAt: t.started_at,
+              completedAt: t.completed_at,
+              deliverables: t.deliverables || [],
+              outputText: t.output_text,
+              errorMessage: t.error_message,
+            };
+          }),
+        }));
+
+      const allTasks = sprints.flatMap(s => s.tasks);
+      return { sprints, allTasks };
+    }
+
+    // Fallback: read from work_statement output card
     const wsCard = session.outputCards.find((c: any) => c.type === "work_statement");
     const wsData = (wsCard as any)?.data;
     const rawSprints = wsData?.sprints || [];
@@ -92,7 +146,7 @@ const Dashboard = () => {
 
     const allTasks = sprints.flatMap((s: any) => s.tasks);
     return { sprints, allTasks };
-  }, [session]);
+  }, [session, dbTasks]);
 
   const currentSprintTasks = useMemo(() => {
     return allTasks.filter((t: SprintTask) => t.sprintIndex === activeSprint);

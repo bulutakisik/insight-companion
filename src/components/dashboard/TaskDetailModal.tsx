@@ -68,8 +68,8 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
           <div className="mb-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Details</div>
             <div className="grid grid-cols-2 gap-3">
-              <MetaItem label="Started" value={task.status === "queued" ? "Not started" : "—"} />
-              <MetaItem label="Completed" value={task.status === "completed" ? "—" : "—"} />
+              <MetaItem label="Started" value={task.startedAt ? new Date(task.startedAt).toLocaleString() : "Not started"} />
+              <MetaItem label="Completed" value={task.completedAt ? new Date(task.completedAt).toLocaleString() : "—"} />
               <MetaItem label="Sprint" value={`${sprintLabel} · Week 1`} />
               <MetaItem label="Dependencies" value="None" />
             </div>
@@ -79,15 +79,36 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
           {task.status === "completed" && (
             <div className="mb-5">
               <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Deliverables</div>
-              <div className="rounded-xl p-4" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
-                <div className="flex items-center gap-2 mb-2.5">
-                  <span className="text-xl">📦</span>
-                  <span className="text-[13px] font-semibold" style={{ color: "hsl(var(--dash-accent))" }}>Output Files</span>
+              {task.deliverables && task.deliverables.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {task.deliverables.map((d: any, i: number) => (
+                    <div key={i} className="rounded-xl p-4 flex items-center justify-between" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📄</span>
+                        <span className="text-[13px] font-semibold">{d.name || d.title || `File ${i + 1}`}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        {d.url && (
+                          <>
+                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold px-3 py-1 rounded-lg" style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}>Preview</a>
+                            <a href={d.url} download className="text-[11px] font-semibold px-3 py-1 rounded-lg" style={{ border: "1px solid hsl(var(--dash-border))" }}>Download</a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="text-xs" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
-                  Deliverables will appear here once generated.
+              ) : (
+                <div className="rounded-xl p-4" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <span className="text-xl">📦</span>
+                    <span className="text-[13px] font-semibold" style={{ color: "hsl(var(--dash-accent))" }}>Output Files</span>
+                  </div>
+                  <div className="text-xs" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
+                    Deliverables will appear here once generated.
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>
