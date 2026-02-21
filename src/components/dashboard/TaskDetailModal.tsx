@@ -88,12 +88,24 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
                         <span className="text-[13px] font-semibold">{d.name || d.title || `File ${i + 1}`}</span>
                       </div>
                       <div className="flex gap-2">
-                        {d.url && (
-                          <>
-                            <a href={d.url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold px-3 py-1 rounded-lg" style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}>Preview</a>
-                            <a href={d.url} download className="text-[11px] font-semibold px-3 py-1 rounded-lg" style={{ border: "1px solid hsl(var(--dash-border))" }}>Download</a>
-                          </>
-                        )}
+                      <button
+                        onClick={() => {
+                          const content = d.content || d.url || "";
+                          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = d.name || d.title || `deliverable-${i + 1}.md`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="text-[11px] font-semibold px-3 py-1 rounded-lg cursor-pointer"
+                        style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}
+                      >
+                        Download
+                      </button>
                       </div>
                     </div>
                   ))}
