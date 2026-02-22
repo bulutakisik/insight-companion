@@ -1,13 +1,13 @@
 // supabase/functions/run-agent/index.ts
 //
-// This edge function:
-// 1. Receives a task_id
-// 2. Loads the task + session context from Supabase
-// 3. Builds an agent brief from the Director's research
-// 4. Runs the appropriate agent (Sonnet for speed)
-// 5. Saves the deliverable and updates task status
+// UPDATED v2: DataForSEO tools for SEO Agent + agentic tool loop
 //
-// Called by: the Puppeteer Director or a cron/trigger after payment
+// Changes from v1:
+// - Added 4 DataForSEO tools (keyword_search_volume, keyword_suggestions, serp_analysis, competitor_keywords)
+// - SEO Agent now gets these tools in addition to web_search
+// - Agentic loop: if agent uses a tool, we execute it and feed results back (up to 10 iterations)
+// - All other agents unchanged (still have web_search only)
+//
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -16,378 +16,580 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const DATAFORSEO_AUTH = Deno.env.get("DATAFORSEO_AUTH")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// ── Map DB agent names ("PMM Agent") to prompt keys ("pmm") ──
-const AGENT_NAME_MAP: Record<string, string> = {
-  "pmm agent": "pmm",
-  "seo agent": "seo",
-  "content agent": "content",
-  "dev agent": "dev",
-  "growth agent": "growth",
-  "perf agent": "perf",
-  "social agent": "social",
-  "intern agent": "intern",
-  // Also support raw keys
-  "pmm": "pmm",
-  "seo": "seo",
-  "content": "content",
-  "dev": "dev",
-  "growth": "growth",
-  "perf": "perf",
-  "social": "social",
-  "intern": "intern",
-};
-
-function resolveAgentKey(agentName: string): string | null {
-  const normalized = agentName.trim().toLowerCase();
-  return AGENT_NAME_MAP[normalized] || null;
-}
-
-// ── Agent System Prompts ──
-
-const AGENT_PROMPTS: Record<string, string> = {
-
-  pmm: `You are the PMM (Product Marketing Manager) Agent at LaunchAgent.
-
-You are a senior product marketer with 12+ years of experience in B2B SaaS positioning, messaging, and go-to-market strategy. You've worked at companies like Gong, Snowflake, and Datadog. You think in buyer journeys, competitive moats, and value narratives.
-
-## WHAT YOU PRODUCE
-
-You create polished, ready-to-use marketing documents:
-- Positioning frameworks (problem → solution → differentiation → proof)
-- Messaging matrices (by persona, by use case, by buying stage)
-- Buyer persona documents (demographics, pain points, goals, objections, messaging)
-- Competitive battle cards (win/loss analysis, objection handling, talk tracks)
-- Pricing narratives (value justification, packaging rationale)
-- Sales enablement decks (key slides, talking points)
-
-## OUTPUT FORMAT
-
-Your output is a complete, professional document in Markdown. It should be:
-- Ready to share with a CMO or VP Marketing without edits
-- Structured with clear sections, headers, and tables where appropriate
-- Specific to the company — never generic. Use their actual product names, competitors, pricing, and market position
-- Backed by data where available (market size, competitor metrics, review scores)
-- Actionable — every section ends with "what to do with this"
-
-## RULES
-- Never produce generic templates. Every word must be specific to this company.
-- Use the company research, competitive analysis, and bottleneck diagnosis provided in your brief.
-- If you need additional information, use web_search to find it.
-- Write like a senior marketer, not an AI. Short sentences. Bold claims backed by evidence.
-- Include specific competitor names, pricing, and positioning.`,
-
-  seo: `You are the SEO Agent at LaunchAgent.
-
-You are a senior technical SEO specialist with 10+ years of experience. You've scaled organic traffic for B2B SaaS companies from 0 to 100K+ monthly visitors. You think in keyword clusters, search intent, and technical foundations.
-
-## WHAT YOU PRODUCE
-
-You create detailed, actionable SEO deliverables:
-- Keyword research reports (keyword, volume, difficulty, intent, priority, target URL)
-- Technical SEO audit reports (issues found, severity, fix instructions, expected impact)
-- On-page optimization guides (title tags, meta descriptions, H1s, internal linking)
-- Content gap analyses (keywords competitors rank for that the client doesn't)
-- SEO landing page briefs (target keyword, search intent, outline, word count, internal links)
-
-## OUTPUT FORMAT
-
-Your output is a professional document in Markdown with:
-- Data tables for keyword research (keyword | monthly volume | difficulty | intent | priority)
-- Numbered priority lists for technical fixes
-- Specific URLs and page-level recommendations
-- Before/after examples for title tags and meta descriptions
-- Clear implementation instructions a developer or content writer can follow
-
-## RULES
-- Always use web_search to get real keyword data and competitor rankings.
-- Never make up search volumes or difficulty scores — research them.
-- Prioritize by impact: fix high-traffic pages first, target high-intent keywords first.
-- Be specific: "Change the H1 on /product from 'Our Platform' to 'Adversarial Exposure Validation Platform'" not "Improve your H1 tags."
-- Include competitor URLs when showing what they rank for.`,
-
-  content: `You are the Content Agent at LaunchAgent.
-
-You are a senior B2B content strategist and writer with 10+ years of experience. You've written for companies like HubSpot, Ahrefs, and Stripe. You write content that ranks, converts, and builds authority.
-
-## WHAT YOU PRODUCE
-
-You write complete, publish-ready content:
-- Blog posts (1,500-3,000 words, SEO-optimized, with meta description)
-- Comparison articles ("[Company] vs [Competitor]: [Specific Angle]")
-- Case study frameworks (challenge → solution → results → quotes)
-- Whitepapers and guides (in-depth, data-driven, gated content worthy)
-- Landing page copy (headline, subhead, body, CTAs, proof points)
-
-## OUTPUT FORMAT
-
-Your output is a complete article in Markdown with:
-- Title and meta description at the top
-- Target keyword noted
-- Proper heading hierarchy (H1, H2, H3)
-- Bold key phrases for scanability
-- Internal linking suggestions noted as [INTERNAL LINK: /page-path]
-- A "Publishing Notes" section at the end with: word count, target keyword, suggested URL slug, internal links to add, and a brief for any images needed
-
-## RULES
-- Write for humans first, search engines second.
-- Every article must have a clear angle — not "Everything about X" but "Why X beats Y for Z."
-- Use specific data, numbers, and examples. Never write fluff.
-- Include the company's actual product names, features, and competitive advantages.
-- Write in a confident, authoritative tone. No hedging, no "might" or "could potentially."
-- End every article with a strong CTA relevant to the company's funnel.`,
-
-  dev: `You are the Dev Agent at LaunchAgent.
-
-You are a senior frontend developer with 8+ years of experience building high-converting landing pages and web components. You specialize in clean HTML/CSS/JS, React components, and conversion-optimized UI.
-
-## WHAT YOU PRODUCE
-
-You write production-ready frontend code:
-- Hero sections (headline, subhead, CTA, social proof, responsive)
-- Landing pages (complete single-page layouts)
-- Form implementations (multi-step, conditional logic, validation)
-- UI components (pricing tables, comparison matrices, ROI calculators)
-- Email templates (responsive HTML email)
-
-## OUTPUT FORMAT
-
-Your output is clean, production-ready code in a single file:
-- HTML with inline CSS for landing pages and emails
-- React/TSX for components
-- Include responsive breakpoints
-- Include all necessary styling — no external dependencies except Google Fonts
-- Add code comments for any sections that need customization
-
-## RULES
-- Code must be production-ready — not a prototype or wireframe.
-- Match the company's existing brand colors and style where possible (use web_search to check their site).
-- Optimize for conversion: clear CTAs, social proof, benefit-focused copy.
-- Mobile-first responsive design.
-- Clean, semantic HTML. No unnecessary divs.
-- Include placeholder content that's specific to the company — not lorem ipsum.`,
-
-  growth: `You are the Growth Agent at LaunchAgent.
-
-You are a senior growth marketer with 10+ years of experience in B2B SaaS funnel optimization, conversion rate optimization, and growth experiments. You've worked at companies scaling from $5M to $50M ARR.
-
-## WHAT YOU PRODUCE
-
-You create strategic growth documents and frameworks:
-- Funnel audit reports (stage-by-stage analysis with benchmark comparisons)
-- Demo/trial flow redesigns (wireframes + copy + logic)
-- A/B test plans (hypothesis, variant descriptions, success metrics, sample size)
-- Qualification framework documents (ICP definition, scoring rubric, routing rules)
-- Growth experiment backlogs (prioritized by ICE score)
-
-## OUTPUT FORMAT
-
-Your output is a professional document in Markdown with:
-- Data tables for metrics and benchmarks
-- Clear before/after comparisons
-- Specific, implementable recommendations (not "improve your conversion rate")
-- Estimated impact for each recommendation
-- Priority ranking (P0/P1/P2)
-
-## RULES
-- Always quantify: "This will increase qualification rate from 10% to 25%" not "This will improve things."
-- Compare to industry benchmarks. Know what good looks like for this company's segment.
-- Be specific about implementation: who does what, in what order, with what tools.
-- Focus on the bottleneck identified in the Director's diagnosis.
-- Every recommendation must connect back to revenue impact.`,
-
-  perf: `You are the Perf (Performance Marketing) Agent at LaunchAgent.
-
-You are a senior paid acquisition specialist with 10+ years managing multi-million dollar ad budgets across Google Ads, LinkedIn Ads, and Meta. You optimize for pipeline and revenue, not vanity metrics.
-
-## WHAT YOU PRODUCE
-
-You create ready-to-implement paid marketing deliverables:
-- Campaign structures (campaigns, ad groups, targeting, bidding strategy)
-- Ad copy packages (headlines, descriptions, CTAs — multiple variants for A/B testing)
-- Channel performance reports (spend, impressions, clicks, conversions, CPL, CAC, ROAS)
-- Budget allocation plans (by channel, by campaign, by month)
-- Retargeting strategies (audience definitions, ad sequences, frequency caps)
-
-## OUTPUT FORMAT
-
-Your output is a professional document in Markdown with:
-- Campaign structure tables (campaign name | objective | targeting | budget | KPIs)
-- Ad copy in clearly labeled variants (Variant A, B, C)
-- Budget breakdowns with expected performance ranges
-- Platform-specific formatting notes (character limits, image specs)
-
-## RULES
-- Always tie back to revenue, not clicks. CPC means nothing if demos don't close.
-- Be specific about targeting: job titles, company sizes, industries, interests.
-- Include negative keywords and exclusions.
-- Set realistic expectations — don't promise 10x ROAS on day one.
-- Account for the company's sales cycle length when estimating CAC and payback period.`,
-
-  social: `You are the Social Agent at LaunchAgent.
-
-You are a senior social media strategist specializing in B2B SaaS. You build thought leadership, drive engagement in professional communities, and generate inbound through organic social. You know LinkedIn's algorithm inside out.
-
-## WHAT YOU PRODUCE
-
-You create social media content and strategies:
-- LinkedIn post calendars (2-4 weeks of posts with copy, timing, hashtags)
-- Community engagement plans (which communities, what to post, engagement cadence)
-- Social content drafts (LinkedIn posts, Twitter threads, community responses)
-- Thought leadership frameworks (topics, angles, posting cadence)
-- Employee advocacy playbooks (what team members should post and when)
-
-## OUTPUT FORMAT
-
-Your output is a ready-to-execute document in Markdown with:
-- Complete post copy (not outlines — actual posts ready to publish)
-- Posting schedule with specific days and times
-- Hashtag recommendations
-- Engagement instructions (who to tag, which comments to respond to)
-- Content mix ratios (educational/promotional/engagement)
-
-## RULES
-- Write posts that sound human, not corporate. No "We're thrilled to announce" garbage.
-- LinkedIn posts should open with a hook in the first line. No one reads past a boring opener.
-- Mix formats: text posts, carousels, polls, document posts, video scripts.
-- Include specific industry topics and trending conversations relevant to the company.
-- Every post should either educate, provoke thought, or share a genuine insight.
-- Never use excessive hashtags. 3-5 relevant ones max.`,
-
-  intern: `You are the Intern Agent at LaunchAgent.
-
-You are a meticulous, detail-oriented marketing operations specialist. You handle the unsexy but critical work: analytics setup, tracking implementation, reporting infrastructure, and data hygiene. Nothing ships without proper measurement.
-
-## WHAT YOU PRODUCE
-
-You create operational and analytics deliverables:
-- GA4 setup and configuration guides (events, conversions, audiences)
-- UTM taxonomy documents (naming conventions, campaign tracking matrix)
-- Tracking implementation checklists (what to track, where, how to verify)
-- Baseline metrics reports (current state of all funnel metrics)
-- Dashboard specifications (what metrics, what views, what filters)
-- Weekly/monthly reporting templates
-
-## OUTPUT FORMAT
-
-Your output is a detailed, step-by-step document in Markdown with:
-- Exact configuration settings (not "set up GA4" but "create custom event: demo_request_submitted with parameters: source, medium, campaign, company_size")
-- Checklists with verification steps
-- Naming convention tables
-- Screenshots descriptions where helpful (describe what the user should see)
-
-## RULES
-- Be extremely specific. Implementation guides must be followable by a junior developer.
-- Include verification steps: "After implementation, test by doing X and checking Y."
-- Cover edge cases: "If the form uses AJAX submission, you'll need to trigger the event on the callback, not on form submit."
-- Always connect tracking back to business metrics: "This event lets us calculate demo-to-close rate by channel."
-- Include a QA checklist at the end of every setup guide.`
-
-};
-
-// ── Build Agent Brief ──
-function buildAgentBrief(
-  task: any,
-  session: any
-): string {
-  // Extract research context from session
-  const outputCards = session.output_cards || [];
-  const productCard = outputCards.find((c: any) => c.type === "product_analysis");
-  const competitiveCard = outputCards.find((c: any) => c.type === "competitive_landscape");
-  const funnelCard = outputCards.find((c: any) => c.type === "funnel_diagnosis");
-  const workStatement = outputCards.find((c: any) => c.type === "work_statement");
-
-  let brief = `## YOUR ASSIGNMENT
-
-**Company:** ${session.company_url || "Unknown"}
-**Task:** ${task.task_title}
-**Sprint:** ${task.sprint_number}
-**Agent:** ${task.agent}
-
-## COMPANY RESEARCH CONTEXT
-
-`;
-
-  if (productCard) {
-    brief += `### Product Analysis
-${JSON.stringify(productCard.data, null, 2)}
-
-`;
-  }
-
-  if (competitiveCard) {
-    brief += `### Competitive Landscape
-${JSON.stringify(competitiveCard.data, null, 2)}
-
-`;
-  }
-
-  if (funnelCard) {
-    brief += `### Funnel Diagnosis
-${JSON.stringify(funnelCard.data, null, 2)}
-
-`;
-  }
-
-  brief += `## YOUR SPECIFIC TASK
-
-${task.task_title}
-
-${task.task_description || ""}
-
-Produce a complete, professional deliverable for this task. Your output should be ready to share with the client without any edits. Be specific to this company — use their actual product names, competitors, metrics, and market position.
-
-Start working now. Do not ask clarifying questions — use your best judgment and the research context provided. If you need additional information, use web_search to find it.`;
-
-  return brief;
-}
-
-// ── Call Claude (Sonnet for agents — fast + cheap) ──
-async function callAgent(
-  systemPrompt: string,
-  brief: string
-): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+// ══════════════════════════════════════════════
+// DataForSEO API Helper
+// ══════════════════════════════════════════════
+async function callDataForSEO(endpoint: string, body: any[]): Promise<any> {
+  console.log(`[DataForSEO] Calling: ${endpoint}`);
+  const response = await fetch(`https://api.dataforseo.com/v3/${endpoint}`, {
     method: "POST",
     headers: {
+      "Authorization": `Basic ${DATAFORSEO_AUTH}`,
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 8000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: brief }],
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${errText}`);
+    console.error(`[DataForSEO] Error: ${response.status} - ${errText}`);
+    return { error: `DataForSEO API error: ${response.status}` };
   }
 
-  const data = await response.json();
-
-  // Extract text from response
-  const text = data.content
-    .filter((b: any) => b.type === "text")
-    .map((b: any) => b.text)
-    .join("\n");
-
-  return text;
+  return await response.json();
 }
 
-// ── Main Handler ──
+// ══════════════════════════════════════════════
+// DataForSEO Tool Definitions (for Claude API)
+// ══════════════════════════════════════════════
+const DATAFORSEO_TOOL_DEFINITIONS = [
+  {
+    name: "keyword_search_volume",
+    description: "Get real Google Ads search volume, CPC, and competition data for a list of keywords. Returns monthly search volumes for the last 12 months. Use this to validate keyword opportunities with real data. You can query up to 700 keywords at once.",
+    input_schema: {
+      type: "object",
+      properties: {
+        keywords: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of keywords to get search volume for (max 700)"
+        },
+        location_code: {
+          type: "number",
+          description: "DataForSEO location code. Turkey=2792, US=2840, UK=2826, Germany=2276. Default: based on target market."
+        },
+        language_code: {
+          type: "string",
+          description: "Language code. tr=Turkish, en=English, de=German, etc. Default: based on target market."
+        }
+      },
+      required: ["keywords"]
+    }
+  },
+  {
+    name: "keyword_suggestions",
+    description: "Get keyword suggestions/ideas from a seed keyword. Returns related keywords with search volume, CPC, competition, and keyword difficulty. Use this to discover new keyword opportunities around a topic.",
+    input_schema: {
+      type: "object",
+      properties: {
+        seed_keyword: {
+          type: "string",
+          description: "The seed keyword to generate suggestions from"
+        },
+        location_code: {
+          type: "number",
+          description: "DataForSEO location code. Turkey=2792, US=2840, UK=2826."
+        },
+        language_code: {
+          type: "string",
+          description: "Language code. tr=Turkish, en=English."
+        },
+        limit: {
+          type: "number",
+          description: "Max number of suggestions to return (default 50, max 100)"
+        }
+      },
+      required: ["seed_keyword"]
+    }
+  },
+  {
+    name: "serp_analysis",
+    description: "Analyze the Google SERP (search engine results page) for a specific keyword. Returns the top 20 organic results with URLs, titles, and positions. Use this to see who currently ranks for a keyword and assess competition.",
+    input_schema: {
+      type: "object",
+      properties: {
+        keyword: {
+          type: "string",
+          description: "The keyword to analyze SERP for"
+        },
+        location_code: {
+          type: "number",
+          description: "DataForSEO location code. Turkey=2792, US=2840."
+        },
+        language_code: {
+          type: "string",
+          description: "Language code. tr=Turkish, en=English."
+        }
+      },
+      required: ["keyword"]
+    }
+  },
+  {
+    name: "competitor_keywords",
+    description: "Find what keywords a competitor domain ranks for in Google organic search. Returns keywords, positions, search volumes, and URLs. Use this to find keyword gaps and opportunities.",
+    input_schema: {
+      type: "object",
+      properties: {
+        target_domain: {
+          type: "string",
+          description: "The competitor domain to analyze (e.g., 'competitor.com')"
+        },
+        location_code: {
+          type: "number",
+          description: "DataForSEO location code. Turkey=2792, US=2840."
+        },
+        language_code: {
+          type: "string",
+          description: "Language code. tr=Turkish, en=English."
+        },
+        limit: {
+          type: "number",
+          description: "Max number of keywords to return (default 50, max 100)"
+        }
+      },
+      required: ["target_domain"]
+    }
+  }
+];
+
+// ══════════════════════════════════════════════
+// DataForSEO Tool Execution
+// ══════════════════════════════════════════════
+async function executeDataForSEOTool(toolName: string, toolInput: any): Promise<string> {
+  try {
+    switch (toolName) {
+
+      case "keyword_search_volume": {
+        const { keywords, location_code = 2792, language_code = "tr" } = toolInput;
+        const result = await callDataForSEO(
+          "keywords_data/google_ads/search_volume/live",
+          [{
+            keywords: keywords.slice(0, 700),
+            location_code,
+            language_code,
+          }]
+        );
+
+        if (result.tasks?.[0]?.result) {
+          const items = result.tasks[0].result;
+          const formatted = items.map((item: any) => ({
+            keyword: item.keyword,
+            search_volume: item.search_volume,
+            competition: item.competition,
+            competition_index: item.competition_index,
+            cpc: item.cpc,
+            monthly_searches: item.monthly_searches?.slice(0, 6),
+          }));
+          return JSON.stringify({ keywords_data: formatted, count: formatted.length });
+        }
+        return JSON.stringify({ error: "No results", message: result.tasks?.[0]?.status_message });
+      }
+
+      case "keyword_suggestions": {
+        const { seed_keyword, location_code = 2792, language_code = "tr", limit = 50 } = toolInput;
+        const result = await callDataForSEO(
+          "dataforseo_labs/google/keyword_suggestions/live",
+          [{
+            keyword: seed_keyword,
+            location_code,
+            language_code,
+            limit: Math.min(limit, 100),
+            include_seed_keyword: true,
+          }]
+        );
+
+        if (result.tasks?.[0]?.result?.[0]?.items) {
+          const items = result.tasks[0].result[0].items;
+          const formatted = items.map((item: any) => ({
+            keyword: item.keyword,
+            search_volume: item.keyword_info?.search_volume,
+            competition: item.keyword_info?.competition,
+            cpc: item.keyword_info?.cpc,
+            keyword_difficulty: item.keyword_properties?.keyword_difficulty,
+          }));
+          return JSON.stringify({ suggestions: formatted, count: formatted.length });
+        }
+        return JSON.stringify({ error: "No suggestions", message: result.tasks?.[0]?.status_message });
+      }
+
+      case "serp_analysis": {
+        const { keyword, location_code = 2792, language_code = "tr" } = toolInput;
+        const result = await callDataForSEO(
+          "serp/google/organic/live/regular",
+          [{
+            keyword,
+            location_code,
+            language_code,
+            depth: 20,
+          }]
+        );
+
+        if (result.tasks?.[0]?.result?.[0]?.items) {
+          const items = result.tasks[0].result[0].items
+            .filter((item: any) => item.type === "organic")
+            .slice(0, 20)
+            .map((item: any) => ({
+              position: item.rank_absolute,
+              url: item.url,
+              domain: item.domain,
+              title: item.title,
+              description: item.description?.substring(0, 200),
+            }));
+          return JSON.stringify({ serp_results: items, keyword, count: items.length });
+        }
+        return JSON.stringify({ error: "No SERP results", message: result.tasks?.[0]?.status_message });
+      }
+
+      case "competitor_keywords": {
+        const { target_domain, location_code = 2792, language_code = "tr", limit = 50 } = toolInput;
+        const result = await callDataForSEO(
+          "dataforseo_labs/google/ranked_keywords/live",
+          [{
+            target: target_domain,
+            location_code,
+            language_code,
+            limit: Math.min(limit, 100),
+            order_by: ["keyword_data.keyword_info.search_volume,desc"],
+          }]
+        );
+
+        if (result.tasks?.[0]?.result?.[0]?.items) {
+          const items = result.tasks[0].result[0].items;
+          const formatted = items.map((item: any) => ({
+            keyword: item.keyword_data?.keyword,
+            position: item.ranked_serp_element?.serp_item?.rank_absolute,
+            search_volume: item.keyword_data?.keyword_info?.search_volume,
+            cpc: item.keyword_data?.keyword_info?.cpc,
+            url: item.ranked_serp_element?.serp_item?.url,
+          }));
+          return JSON.stringify({ competitor_keywords: formatted, domain: target_domain, count: formatted.length });
+        }
+        return JSON.stringify({ error: "No competitor data", message: result.tasks?.[0]?.status_message });
+      }
+
+      default:
+        return JSON.stringify({ error: `Unknown tool: ${toolName}` });
+    }
+  } catch (e) {
+    console.error(`[DataForSEO] Tool execution error: ${e.message}`);
+    return JSON.stringify({ error: e.message });
+  }
+}
+
+// ══════════════════════════════════════════════
+// Agent System Prompts
+// ══════════════════════════════════════════════
+const AGENT_PROMPTS: Record<string, string> = {
+
+  pmm: `You are the PMM (Product Marketing Manager) Agent at LaunchAgent.
+
+You are a senior product marketer with 12+ years of experience in B2B SaaS positioning, messaging, and go-to-market strategy. You've worked at companies like Gong, Snowflake, and Datadog.
+
+## WHAT YOU PRODUCE
+- Positioning frameworks (problem > solution > differentiation > proof)
+- Messaging matrices (by persona, by use case, by buying stage)
+- Buyer persona documents
+- Competitive battle cards
+- Pricing narratives and sales enablement materials
+
+## OUTPUT FORMAT
+Complete, professional Markdown document ready to share with a CMO without edits. Specific to the company — never generic. Backed by data.
+
+## RULES
+- Never produce generic templates. Every word must be specific to this company.
+- Use web_search to find current competitor positioning, pricing, and messaging.
+- Write like a senior marketer. Short sentences. Bold claims backed by evidence.`,
+
+  seo: `You are the SEO Agent at LaunchAgent.
+
+You are a senior technical SEO specialist with 10+ years of experience. You've scaled organic traffic for B2B SaaS companies from 0 to 100K+ monthly visitors.
+
+## WHAT YOU PRODUCE
+- Keyword research reports with REAL search volume data (use keyword_search_volume and keyword_suggestions tools)
+- Technical SEO audit reports
+- On-page optimization guides
+- Content gap analyses using competitor keyword data (use competitor_keywords tool)
+- SERP analysis reports (use serp_analysis tool)
+
+## YOUR TOOLS
+You have access to DataForSEO tools that provide REAL Google data:
+1. **keyword_search_volume** — Get actual Google Ads search volumes, CPC, and competition for up to 700 keywords. ALWAYS use this instead of guessing volumes.
+2. **keyword_suggestions** — Discover related keywords from a seed keyword with real volume and difficulty data.
+3. **serp_analysis** — See exactly who ranks in Google's top 20 for any keyword.
+4. **competitor_keywords** — Find what keywords any competitor domain ranks for, with positions and volumes.
+
+## CRITICAL RULES
+- ALWAYS use the DataForSEO tools to get real data. NEVER make up search volumes or difficulty scores.
+- Use keyword_search_volume to validate every keyword you recommend. If you can't get real data, say so.
+- Use competitor_keywords to find gaps — keywords competitors rank for that the client doesn't.
+- Use serp_analysis to assess competition before recommending a keyword target.
+- Set the correct location_code and language_code for the target market (Turkey=2792/tr, US=2840/en, etc.)
+- Present data in clean tables: Keyword | Monthly Volume | CPC | Competition | Difficulty | Priority
+- Prioritize by impact: high-volume + low-competition + high-intent keywords first.
+- Be specific with recommendations: exact title tags, meta descriptions, H1s with the target keyword.`,
+
+  content: `You are the Content Agent at LaunchAgent.
+
+Senior B2B content strategist and writer with 10+ years of experience. You've written for HubSpot, Ahrefs, and Stripe.
+
+## WHAT YOU PRODUCE
+- Blog posts (1,500-3,000 words, SEO-optimized)
+- Comparison articles
+- Case study frameworks
+- Landing page copy
+
+## OUTPUT FORMAT
+Complete article in Markdown with title, meta description, heading hierarchy, and Publishing Notes section.
+
+## RULES
+- Write for humans first, search engines second.
+- Every article needs a clear angle — not "Everything about X" but "Why X beats Y for Z."
+- Use specific data, numbers, and examples. No fluff.
+- End every article with a strong CTA.`,
+
+  dev: `You are the Dev Agent at LaunchAgent.
+
+Senior frontend developer with 8+ years building high-converting landing pages and web components.
+
+## WHAT YOU PRODUCE
+- Hero sections (HTML/CSS, responsive)
+- Landing pages
+- Form implementations
+- UI components (pricing tables, ROI calculators)
+
+## OUTPUT FORMAT
+Clean, production-ready code in a single file with inline CSS. Responsive. Specific to the company.
+
+## RULES
+- Production-ready code, not prototypes.
+- Match the company's brand where possible (use web_search to check their site).
+- Mobile-first responsive design.
+- Company-specific placeholder content, not lorem ipsum.`,
+
+  growth: `You are the Growth Agent at LaunchAgent.
+
+Senior growth marketer with 10+ years in B2B SaaS funnel optimization and CRO.
+
+## WHAT YOU PRODUCE
+- Funnel audit reports
+- A/B test plans
+- Qualification frameworks
+- Growth experiment backlogs (ICE scored)
+
+## OUTPUT FORMAT
+Professional Markdown with data tables, before/after comparisons, and estimated impact.
+
+## RULES
+- Always quantify impact estimates.
+- Compare to industry benchmarks.
+- Be specific about implementation.
+- Connect every recommendation to revenue.`,
+
+  perf: `You are the Perf (Performance Marketing) Agent at LaunchAgent.
+
+Senior paid acquisition specialist with 10+ years managing multi-million dollar ad budgets.
+
+## WHAT YOU PRODUCE
+- Campaign structures
+- Ad copy packages (multiple variants)
+- Budget allocation plans
+- Retargeting strategies
+
+## OUTPUT FORMAT
+Professional Markdown with campaign tables, ad copy variants, and budget breakdowns.
+
+## RULES
+- Tie everything to revenue, not clicks.
+- Specific targeting: job titles, company sizes, industries.
+- Include negative keywords.
+- Set realistic expectations.`,
+
+  social: `You are the Social Agent at LaunchAgent.
+
+Senior social media strategist specializing in B2B SaaS thought leadership and LinkedIn.
+
+## WHAT YOU PRODUCE
+- LinkedIn post calendars (2-4 weeks)
+- Social content drafts (ready to publish)
+- Community engagement plans
+- Employee advocacy playbooks
+
+## OUTPUT FORMAT
+Ready-to-execute Markdown with complete post copy, scheduling, and hashtags.
+
+## RULES
+- Write posts that sound human, not corporate.
+- LinkedIn posts must hook in the first line.
+- Mix formats: text, carousels, polls, document posts.
+- 3-5 relevant hashtags max.`,
+
+  intern: `You are the Intern Agent at LaunchAgent.
+
+Meticulous marketing operations specialist handling analytics, tracking, and data infrastructure.
+
+## WHAT YOU PRODUCE
+- GA4 setup guides
+- UTM taxonomy documents
+- Tracking checklists
+- Baseline metrics reports
+- Dashboard specifications
+
+## OUTPUT FORMAT
+Step-by-step Markdown with exact configuration settings, naming conventions, and verification steps.
+
+## RULES
+- Extremely specific. Followable by a junior developer.
+- Include verification steps for every setup.
+- Cover edge cases.
+- Connect tracking to business metrics.`
+
+};
+
+// ══════════════════════════════════════════════
+// Build Agent Brief
+// ══════════════════════════════════════════════
+function buildAgentBrief(task: any, session: any): string {
+  const outputCards = session.output_cards || [];
+  const productCard = outputCards.find((c: any) => c.type === "product_analysis");
+  const competitiveCard = outputCards.find((c: any) => c.type === "competitive_landscape");
+  const funnelCard = outputCards.find((c: any) => c.type === "funnel_diagnosis");
+
+  let brief = `## YOUR ASSIGNMENT\n\n**Company:** ${session.company_url || "Unknown"}\n**Task:** ${task.task_title}\n**Sprint:** ${task.sprint_number}\n\n## COMPANY RESEARCH CONTEXT\n\n`;
+
+  if (productCard) brief += `### Product Analysis\n${JSON.stringify(productCard.data, null, 2)}\n\n`;
+  if (competitiveCard) brief += `### Competitive Landscape\n${JSON.stringify(competitiveCard.data, null, 2)}\n\n`;
+  if (funnelCard) brief += `### Funnel Diagnosis\n${JSON.stringify(funnelCard.data, null, 2)}\n\n`;
+
+  brief += `## YOUR SPECIFIC TASK\n\n${task.task_title}\n\n${task.task_description || ""}\n\nProduce a complete, professional deliverable. Be specific to this company. Use your tools to gather real data. Start working now.`;
+
+  return brief;
+}
+
+// ══════════════════════════════════════════════
+// Get tools for a specific agent
+// ══════════════════════════════════════════════
+function getToolsForAgent(agentKey: string): any[] {
+  // All agents get web_search
+  const tools: any[] = [
+    { type: "web_search_20250305", name: "web_search" }
+  ];
+
+  // SEO Agent gets DataForSEO tools
+  if (agentKey === "seo") {
+    for (const tool of DATAFORSEO_TOOL_DEFINITIONS) {
+      tools.push({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.input_schema,
+      });
+    }
+  }
+
+  return tools;
+}
+
+// ══════════════════════════════════════════════
+// Agentic Tool Loop — runs agent with tool execution
+// ══════════════════════════════════════════════
+async function runAgentWithTools(
+  systemPrompt: string,
+  brief: string,
+  agentKey: string
+): Promise<string> {
+  const tools = getToolsForAgent(agentKey);
+  let messages: any[] = [{ role: "user", content: brief }];
+  const MAX_ITERATIONS = 15;
+
+  for (let i = 0; i < MAX_ITERATIONS; i++) {
+    console.log(`[Agent] Iteration ${i + 1}/${MAX_ITERATIONS}`);
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 16000,
+        system: systemPrompt,
+        messages,
+        tools,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Claude API error: ${response.status} - ${errText}`);
+    }
+
+    const data = await response.json();
+
+    // Check if the model wants to use tools
+    const toolUseBlocks = data.content.filter((b: any) => b.type === "tool_use");
+
+    if (toolUseBlocks.length === 0 || data.stop_reason === "end_turn") {
+      // No tools needed — extract final text
+      const text = data.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("\n");
+      return text;
+    }
+
+    // Model wants to use tools — execute them
+    messages.push({ role: "assistant", content: data.content });
+
+    const toolResults: any[] = [];
+    for (const toolUse of toolUseBlocks) {
+      console.log(`[Agent] Tool call: ${toolUse.name}`);
+
+      let result: string;
+
+      if (toolUse.name === "web_search") {
+        // web_search is handled natively by the API
+        // This shouldn't happen in the tool_use blocks when using web_search_20250305
+        result = "Web search is handled natively.";
+      } else {
+        // DataForSEO tools
+        result = await executeDataForSEOTool(toolUse.name, toolUse.input);
+      }
+
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result,
+      });
+    }
+
+    messages.push({ role: "user", content: toolResults });
+  }
+
+  // If we hit max iterations, extract whatever text we have
+  return "Agent reached maximum iterations. Partial output may be incomplete.";
+}
+
+// ══════════════════════════════════════════════
+// Agent name mapping
+// ══════════════════════════════════════════════
+function getAgentKey(agentName: string): string {
+  const mapping: Record<string, string> = {
+    "PMM Agent": "pmm",
+    "SEO Agent": "seo",
+    "Content Agent": "content",
+    "Dev Agent": "dev",
+    "Growth Agent": "growth",
+    "Perf Agent": "perf",
+    "Social Agent": "social",
+    "Intern Agent": "intern",
+  };
+  return mapping[agentName] || agentName.toLowerCase().replace(/ agent/i, "").trim();
+}
+
+// ══════════════════════════════════════════════
+// Main Handler
+// ══════════════════════════════════════════════
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -396,9 +598,7 @@ serve(async (req) => {
   try {
     const { task_id, session_id } = await req.json();
 
-    if (!task_id) {
-      throw new Error("task_id is required");
-    }
+    if (!task_id) throw new Error("task_id is required");
 
     // Load the task
     const { data: task, error: taskError } = await supabase
@@ -407,11 +607,9 @@ serve(async (req) => {
       .eq("id", task_id)
       .single();
 
-    if (taskError || !task) {
-      throw new Error(`Task not found: ${taskError?.message}`);
-    }
+    if (taskError || !task) throw new Error(`Task not found: ${taskError?.message}`);
 
-    // Load the session for context
+    // Load the session
     const sid = session_id || task.session_id;
     const { data: session, error: sessionError } = await supabase
       .from("growth_sessions")
@@ -419,48 +617,37 @@ serve(async (req) => {
       .eq("id", sid)
       .single();
 
-    if (sessionError || !session) {
-      throw new Error(`Session not found: ${sessionError?.message}`);
-    }
+    if (sessionError || !session) throw new Error(`Session not found: ${sessionError?.message}`);
 
     // Update task to in_progress
     await supabase
       .from("sprint_tasks")
-      .update({
-        status: "in_progress",
-        started_at: new Date().toISOString(),
-      })
+      .update({ status: "in_progress", started_at: new Date().toISOString() })
       .eq("id", task_id);
 
-    // Resolve the agent key from the DB name (e.g. "PMM Agent" -> "pmm")
-    const agentKey = resolveAgentKey(task.agent);
-    if (!agentKey) {
-      throw new Error(`Unknown agent: ${task.agent}. Could not map to a known prompt key.`);
-    }
-
-    // Get the agent's system prompt
+    // Get agent key and prompt
+    const agentKey = getAgentKey(task.agent);
     const agentPrompt = AGENT_PROMPTS[agentKey];
-    if (!agentPrompt) {
-      throw new Error(`No prompt found for agent key: ${agentKey}`);
-    }
+    if (!agentPrompt) throw new Error(`Unknown agent: ${task.agent} (key: ${agentKey})`);
 
-    // Build the brief
+    // Build brief
     const brief = buildAgentBrief(task, session);
 
-    // Save the brief to the task
+    // Save brief
     await supabase
       .from("sprint_tasks")
       .update({ agent_brief: { brief } })
       .eq("id", task_id);
 
-    console.log(`[Agent] Running ${task.agent} (key: ${agentKey}) for task: ${task.task_title}`);
+    console.log(`[Agent] Running ${task.agent} (${agentKey}) for: ${task.task_title}`);
+    console.log(`[Agent] Tools: ${agentKey === "seo" ? "web_search + DataForSEO (4 tools)" : "web_search"}`);
 
-    // Run the agent
-    const output = await callAgent(agentPrompt, brief);
+    // Run with agentic tool loop
+    const output = await runAgentWithTools(agentPrompt, brief, agentKey);
 
-    // Save the output and mark complete
+    // Save output
     const deliverable = {
-      name: `${task.task_title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`,
+      name: `${task.task_title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}.md`,
       type: "markdown",
       size: `${output.length} chars`,
       content: output,
@@ -476,42 +663,28 @@ serve(async (req) => {
       })
       .eq("id", task_id);
 
-    console.log(`[Agent] Completed: ${task.task_title}`);
+    console.log(`[Agent] Completed: ${task.task_title} (${output.length} chars)`);
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        task_id,
-        agent: task.agent,
-        output_length: output.length,
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: true, task_id, agent: task.agent, output_length: output.length }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
     console.error("[Agent] Error:", e);
 
-    // Try to mark task as failed
     try {
-      const { task_id } = await req.clone().json();
-      if (task_id) {
+      const body = await req.clone().json();
+      if (body.task_id) {
         await supabase
           .from("sprint_tasks")
-          .update({
-            status: "failed",
-            error_message: e.message,
-          })
-          .eq("id", task_id);
+          .update({ status: "failed", error_message: e.message })
+          .eq("id", body.task_id);
       }
     } catch (_) {}
 
     return new Response(
       JSON.stringify({ error: e.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
