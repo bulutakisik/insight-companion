@@ -91,6 +91,7 @@ export type Database = {
           agent: string
           agent_brief: Json | null
           completed_at: string | null
+          continuation_count: number
           created_at: string | null
           deliverables: Json | null
           error_message: string | null
@@ -108,6 +109,7 @@ export type Database = {
           agent: string
           agent_brief?: Json | null
           completed_at?: string | null
+          continuation_count?: number
           created_at?: string | null
           deliverables?: Json | null
           error_message?: string | null
@@ -125,6 +127,7 @@ export type Database = {
           agent?: string
           agent_brief?: Json | null
           completed_at?: string | null
+          continuation_count?: number
           created_at?: string | null
           deliverables?: Json | null
           error_message?: string | null

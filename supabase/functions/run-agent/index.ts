@@ -1,12 +1,12 @@
 // supabase/functions/run-agent/index.ts
 //
-// UPDATED v2: DataForSEO tools for SEO Agent + agentic tool loop
+// UPDATED v3: Continuation system for long tasks
 //
-// Changes from v1:
-// - Added 4 DataForSEO tools (keyword_search_volume, keyword_suggestions, serp_analysis, competitor_keywords)
-// - SEO Agent now gets these tools in addition to web_search
-// - Agentic loop: if agent uses a tool, we execute it and feed results back (up to 10 iterations)
-// - All other agents unchanged (still have web_search only)
+// Changes from v2:
+// - Added [WORK_CONTINUES]/[WORK_COMPLETE] markers to all agent prompts
+// - After agent finishes, checks for [WORK_CONTINUES] and self-recurses
+// - continuation_count tracked in DB, capped at 5
+// - Accumulated output concatenated into single final deliverable
 //
 
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
@@ -25,6 +25,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+const MAX_CONTINUATIONS = 5;
+
+// ══════════════════════════════════════════════
+// Continuation instruction appended to ALL agent prompts
+// ══════════════════════════════════════════════
+const CONTINUATION_INSTRUCTION = `
+
+## SESSION COMPLETION RULES
+If you cannot complete the full task in this session, end your output with [WORK_CONTINUES] and summarize what remains to be done. If you have completed everything, end with [WORK_COMPLETE].`;
 
 // ══════════════════════════════════════════════
 // DataForSEO API Helper
@@ -448,13 +458,20 @@ Step-by-step Markdown with exact configuration settings, naming conventions, and
 // ══════════════════════════════════════════════
 // Build Agent Brief
 // ══════════════════════════════════════════════
-function buildAgentBrief(task: any, session: any): string {
+function buildAgentBrief(task: any, session: any, previousOutput?: string): string {
   const outputCards = session.output_cards || [];
   const productCard = outputCards.find((c: any) => c.type === "product_analysis");
   const competitiveCard = outputCards.find((c: any) => c.type === "competitive_landscape");
   const funnelCard = outputCards.find((c: any) => c.type === "funnel_diagnosis");
 
-  let brief = `## YOUR ASSIGNMENT\n\n**Company:** ${session.company_url || "Unknown"}\n**Task:** ${task.task_title}\n**Sprint:** ${task.sprint_number}\n\n## COMPANY RESEARCH CONTEXT\n\n`;
+  let brief = `## YOUR ASSIGNMENT\n\n**Company:** ${session.company_url || "Unknown"}\n**Task:** ${task.task_title}\n**Sprint:** ${task.sprint_number}\n\n`;
+
+  // If continuing from previous output, prepend it
+  if (previousOutput) {
+    brief += `## WORK COMPLETED SO FAR\n\nHere is your work completed so far:\n\n${previousOutput}\n\nContinue where you left off and complete the remaining work.\n\n`;
+  }
+
+  brief += `## COMPANY RESEARCH CONTEXT\n\n`;
 
   if (productCard) brief += `### Product Analysis\n${JSON.stringify(productCard.data, null, 2)}\n\n`;
   if (competitiveCard) brief += `### Competitive Landscape\n${JSON.stringify(competitiveCard.data, null, 2)}\n\n`;
@@ -498,10 +515,16 @@ async function runAgentWithTools(
 ): Promise<string> {
   const tools = getToolsForAgent(agentKey);
   let messages: any[] = [{ role: "user", content: brief }];
-  const MAX_ITERATIONS = 15;
+  const MAX_ITERATIONS = 8;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[Agent] Iteration ${i + 1}/${MAX_ITERATIONS}`);
+
+    // At iteration 6, force wrap-up
+    const isWrapUp = i >= 5;
+    const currentSystemPrompt = isWrapUp
+      ? systemPrompt + "\n\nIMPORTANT: You are running low on time. Wrap up your current output now. If you have more work to do, end with [WORK_CONTINUES] and summarize what remains. Do NOT make any more tool calls."
+      : systemPrompt;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -513,9 +536,9 @@ async function runAgentWithTools(
       body: JSON.stringify({
         model: "claude-sonnet-4-5-20250929",
         max_tokens: 16000,
-        system: systemPrompt,
+        system: currentSystemPrompt,
         messages,
-        tools,
+        tools: isWrapUp ? [] : tools,
       }),
     });
 
@@ -549,7 +572,6 @@ async function runAgentWithTools(
 
       if (toolUse.name === "web_search") {
         // web_search is handled natively by the API
-        // This shouldn't happen in the tool_use blocks when using web_search_20250305
         result = "Web search is handled natively.";
       } else {
         // DataForSEO tools
@@ -567,7 +589,14 @@ async function runAgentWithTools(
   }
 
   // If we hit max iterations, extract whatever text we have
-  return "Agent reached maximum iterations. Partial output may be incomplete.";
+  return "Agent reached maximum iterations. Partial output may be incomplete. [WORK_COMPLETE]";
+}
+
+// ══════════════════════════════════════════════
+// Strip continuation markers from output
+// ══════════════════════════════════════════════
+function stripMarkers(text: string): string {
+  return text.replace(/\[WORK_CONTINUES\]/g, "").replace(/\[WORK_COMPLETE\]/g, "").trim();
 }
 
 // ══════════════════════════════════════════════
@@ -596,7 +625,7 @@ serve(async (req) => {
   }
 
   try {
-    const { task_id, session_id } = await req.json();
+    const { task_id, session_id, previous_output } = await req.json();
 
     if (!task_id) throw new Error("task_id is required");
 
@@ -619,38 +648,88 @@ serve(async (req) => {
 
     if (sessionError || !session) throw new Error(`Session not found: ${sessionError?.message}`);
 
-    // Update task to in_progress
-    await supabase
-      .from("sprint_tasks")
-      .update({ status: "in_progress", started_at: new Date().toISOString() })
-      .eq("id", task_id);
+    const continuationCount = (task as any).continuation_count || 0;
 
-    // Get agent key and prompt
+    // Update task to in_progress (only on first run, not continuations)
+    if (!previous_output) {
+      await supabase
+        .from("sprint_tasks")
+        .update({ status: "in_progress", started_at: new Date().toISOString() })
+        .eq("id", task_id);
+    }
+
+    // Get agent key and prompt (with continuation instruction)
     const agentKey = getAgentKey(task.agent);
-    const agentPrompt = AGENT_PROMPTS[agentKey];
-    if (!agentPrompt) throw new Error(`Unknown agent: ${task.agent} (key: ${agentKey})`);
+    const basePrompt = AGENT_PROMPTS[agentKey];
+    if (!basePrompt) throw new Error(`Unknown agent: ${task.agent} (key: ${agentKey})`);
+    const agentPrompt = basePrompt + CONTINUATION_INSTRUCTION;
 
-    // Build brief
-    const brief = buildAgentBrief(task, session);
+    // Build brief (with previous output if continuing)
+    const brief = buildAgentBrief(task, session, previous_output || undefined);
 
-    // Save brief
-    await supabase
-      .from("sprint_tasks")
-      .update({ agent_brief: { brief } })
-      .eq("id", task_id);
+    // Save brief (only on first run)
+    if (!previous_output) {
+      await supabase
+        .from("sprint_tasks")
+        .update({ agent_brief: { brief } })
+        .eq("id", task_id);
+    }
 
-    console.log(`[Agent] Running ${task.agent} (${agentKey}) for: ${task.task_title}`);
+    console.log(`[Agent] Running ${task.agent} (${agentKey}) for: ${task.task_title}${previous_output ? ` [continuation ${continuationCount + 1}]` : ""}`);
     console.log(`[Agent] Tools: ${agentKey === "seo" ? "web_search + DataForSEO (4 tools)" : "web_search"}`);
 
     // Run with agentic tool loop
     const output = await runAgentWithTools(agentPrompt, brief, agentKey);
 
-    // Save output
+    // Check for continuation marker
+    const needsContinuation = output.includes("[WORK_CONTINUES]");
+    const accumulatedOutput = previous_output
+      ? previous_output + "\n\n" + stripMarkers(output)
+      : stripMarkers(output);
+
+    if (needsContinuation && continuationCount < MAX_CONTINUATIONS) {
+      // Save partial output, keep status as in_progress, bump continuation_count
+      const newCount = continuationCount + 1;
+      await supabase
+        .from("sprint_tasks")
+        .update({
+          output_text: accumulatedOutput,
+          continuation_count: newCount,
+        })
+        .eq("id", task_id);
+
+      console.log(`[Agent] Work continues for: ${task.task_title} (continuation ${newCount}/${MAX_CONTINUATIONS})`);
+
+      // Fire-and-forget: self-recurse for next continuation
+      const runAgentUrl = `${SUPABASE_URL}/functions/v1/run-agent`;
+      fetch(runAgentUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        },
+        body: JSON.stringify({
+          task_id: task_id,
+          session_id: sid,
+          previous_output: accumulatedOutput,
+        }),
+      }).catch((e) => {
+        console.error(`[Agent] Continuation fetch error (non-fatal): ${e.message}`);
+      });
+
+      return new Response(
+        JSON.stringify({ success: true, task_id, status: "continuing", continuation: newCount }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Final output — task is complete (or hit max continuations)
+    const finalOutput = accumulatedOutput;
     const deliverable = {
       name: `${task.task_title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}.md`,
       type: "markdown",
-      size: `${output.length} chars`,
-      content: output,
+      size: `${finalOutput.length} chars`,
+      content: finalOutput,
     };
 
     await supabase
@@ -658,15 +737,16 @@ serve(async (req) => {
       .update({
         status: "completed",
         completed_at: new Date().toISOString(),
-        output_text: output,
+        output_text: finalOutput,
         deliverables: [deliverable],
+        continuation_count: continuationCount + (needsContinuation ? 1 : 0),
       })
       .eq("id", task_id);
 
-    console.log(`[Agent] Completed: ${task.task_title} (${output.length} chars)`);
+    console.log(`[Agent] Completed: ${task.task_title} (${finalOutput.length} chars, ${continuationCount + 1} parts)`);
 
     return new Response(
-      JSON.stringify({ success: true, task_id, agent: task.agent, output_length: output.length }),
+      JSON.stringify({ success: true, task_id, agent: task.agent, output_length: finalOutput.length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {

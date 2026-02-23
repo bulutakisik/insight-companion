@@ -168,6 +168,7 @@ const Dashboard = () => {
               deliverables: t.deliverables || [],
               outputText: t.output_text,
               errorMessage: t.error_message,
+              continuationCount: t.continuation_count || 0,
             };
           }),
         }));
