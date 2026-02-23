@@ -315,28 +315,29 @@ Complete, professional Markdown document ready to share with a CMO without edits
 You are a senior technical SEO specialist with 10+ years of experience. You've scaled organic traffic for B2B SaaS companies from 0 to 100K+ monthly visitors.
 
 ## WHAT YOU PRODUCE
-- Keyword research reports with REAL search volume data (use keyword_search_volume and keyword_suggestions tools)
+- Keyword research reports with REAL search volume data
 - Technical SEO audit reports
 - On-page optimization guides
-- Content gap analyses using competitor keyword data (use competitor_keywords tool)
-- SERP analysis reports (use serp_analysis tool)
+- Content gap analyses using competitor keyword data
+- SERP analysis reports
 
 ## YOUR TOOLS
 You have access to DataForSEO tools that provide REAL Google data:
-1. **keyword_search_volume** — Get actual Google Ads search volumes, CPC, and competition for up to 700 keywords. ALWAYS use this instead of guessing volumes.
-2. **keyword_suggestions** — Discover related keywords from a seed keyword with real volume and difficulty data.
-3. **serp_analysis** — See exactly who ranks in Google's top 20 for any keyword.
-4. **competitor_keywords** — Find what keywords any competitor domain ranks for, with positions and volumes.
+1. **keyword_search_volume** — Get actual Google Ads search volumes, CPC, and competition for up to 700 keywords at once.
+2. **keyword_suggestions** — Discover related keywords from a seed keyword.
+3. **serp_analysis** — See who ranks in Google's top 20 for any keyword.
+4. **competitor_keywords** — Find what keywords any competitor domain ranks for.
 
-## CRITICAL RULES
+## CRITICAL: LIMITED TOOL CALLS
+You have limited tool calls. Call keyword_search_volume with ALL your target keywords in ONE batch (up to 700 keywords at once), then optionally call keyword_suggestions OR competitor_keywords for additional data. After your tool calls, immediately write your complete report using the data you received. Do NOT make more than 2 DataForSEO tool calls.
+
+## RULES
 - ALWAYS use the DataForSEO tools to get real data. NEVER make up search volumes or difficulty scores.
-- Use keyword_search_volume to validate every keyword you recommend. If you can't get real data, say so.
-- Use competitor_keywords to find gaps — keywords competitors rank for that the client doesn't.
-- Use serp_analysis to assess competition before recommending a keyword target.
 - Set the correct location_code and language_code for the target market (Turkey=2792/tr, US=2840/en, etc.)
 - Present data in clean tables: Keyword | Monthly Volume | CPC | Competition | Difficulty | Priority
 - Prioritize by impact: high-volume + low-competition + high-intent keywords first.
-- Be specific with recommendations: exact title tags, meta descriptions, H1s with the target keyword.`,
+- Be specific with recommendations: exact title tags, meta descriptions, H1s with the target keyword.
+- After your DataForSEO calls, IMMEDIATELY write the full report. Do not make additional tool calls.`,
 
   content: `You are the Content Agent at LaunchAgent.
 
@@ -485,14 +486,16 @@ function buildAgentBrief(task: any, session: any, previousOutput?: string): stri
 // ══════════════════════════════════════════════
 // Get tools for a specific agent
 // ══════════════════════════════════════════════
-function getToolsForAgent(agentKey: string): any[] {
+const DATAFORSEO_TOOL_NAMES = new Set(["keyword_search_volume", "keyword_suggestions", "serp_analysis", "competitor_keywords"]);
+
+function getToolsForAgent(agentKey: string, excludeDataForSEO = false): any[] {
   // All agents get web_search
   const tools: any[] = [
     { type: "web_search_20250305", name: "web_search" }
   ];
 
-  // SEO Agent gets DataForSEO tools
-  if (agentKey === "seo") {
+  // SEO Agent gets DataForSEO tools (unless limit reached)
+  if (agentKey === "seo" && !excludeDataForSEO) {
     for (const tool of DATAFORSEO_TOOL_DEFINITIONS) {
       tools.push({
         name: tool.name,
@@ -511,21 +514,29 @@ function getToolsForAgent(agentKey: string): any[] {
 async function runAgentWithTools(
   systemPrompt: string,
   brief: string,
-  agentKey: string
+  agentKey: string,
+  taskId?: string
 ): Promise<string> {
-  const tools = getToolsForAgent(agentKey);
   let messages: any[] = [{ role: "user", content: brief }];
-  const MAX_ITERATIONS = 15;
-  const WRAP_UP_AT = 12;
+  const MAX_ITERATIONS = 8;
+  const WRAP_UP_AT = 4; // iterations 4+ are for writing the report
+  let dataForSEOCallCount = 0;
+  const MAX_DATAFORSEO_CALLS = 2;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[Agent] Iteration ${i + 1}/${MAX_ITERATIONS}`);
 
-    // At iteration 12+, force wrap-up
+    // Determine if DataForSEO tools should be removed
+    const excludeDataForSEO = dataForSEOCallCount >= MAX_DATAFORSEO_CALLS;
+    const tools = getToolsForAgent(agentKey, excludeDataForSEO);
+
+    // At iteration WRAP_UP_AT+, force wrap-up
     const isWrapUp = i >= WRAP_UP_AT - 1;
     const currentSystemPrompt = isWrapUp
       ? systemPrompt + "\n\nIMPORTANT: You are running low on time. Wrap up your current output now. If you have more work to do, end with [WORK_CONTINUES] and summarize what remains. Do NOT make any more tool calls."
-      : systemPrompt;
+      : (excludeDataForSEO
+        ? systemPrompt + "\n\nNOTE: You have used all your DataForSEO tool calls. Write your complete report now using the data you already collected."
+        : systemPrompt);
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -572,11 +583,13 @@ async function runAgentWithTools(
       let result: string;
 
       if (toolUse.name === "web_search") {
-        // web_search is handled natively by the API
         result = "Web search is handled natively.";
-      } else {
-        // DataForSEO tools
+      } else if (DATAFORSEO_TOOL_NAMES.has(toolUse.name)) {
+        dataForSEOCallCount++;
+        console.log(`[Agent] DataForSEO call ${dataForSEOCallCount}/${MAX_DATAFORSEO_CALLS}`);
         result = await executeDataForSEOTool(toolUse.name, toolUse.input);
+      } else {
+        result = JSON.stringify({ error: `Unknown tool: ${toolUse.name}` });
       }
 
       toolResults.push({
@@ -587,6 +600,15 @@ async function runAgentWithTools(
     }
 
     messages.push({ role: "user", content: toolResults });
+
+    // DB Heartbeat: update updated_at after each iteration
+    if (taskId) {
+      supabase
+        .from("sprint_tasks")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", taskId)
+        .then(() => {});
+    }
   }
 
   // If we hit max iterations, extract whatever text we have
@@ -680,7 +702,7 @@ serve(async (req) => {
     console.log(`[Agent] Tools: ${agentKey === "seo" ? "web_search + DataForSEO (4 tools)" : "web_search"}`);
 
     // Run with agentic tool loop
-    const output = await runAgentWithTools(agentPrompt, brief, agentKey);
+    const output = await runAgentWithTools(agentPrompt, brief, agentKey, task_id);
 
     // Check for continuation marker
     const needsContinuation = output.includes("[WORK_CONTINUES]");
