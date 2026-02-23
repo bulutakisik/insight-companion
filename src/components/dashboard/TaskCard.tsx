@@ -5,6 +5,7 @@ interface Props {
   variant: "in_progress" | "completed" | "queued" | "failed";
   index: number;
   onClick: () => void;
+  continuationCount?: number;
 }
 
 const statusStyles = {
@@ -28,7 +29,7 @@ const statusStyles = {
   },
 };
 
-const TaskCard = ({ task, variant, index, onClick }: Props) => {
+const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Props) => {
   const style = statusStyles[variant];
 
   return (
@@ -59,7 +60,7 @@ const TaskCard = ({ task, variant, index, onClick }: Props) => {
         </div>
         <span className="text-[10px] font-medium px-2 py-0.5 rounded-xl" style={{ background: style.badge.bg, color: style.badge.color }}>
           {style.showPulse && <span className="inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle animate-pulse" style={{ background: "hsl(var(--dash-orange))" }} />}
-          {style.label}
+          {variant === "in_progress" && continuationCount > 0 ? `Working... (Part ${continuationCount + 1})` : style.label}
         </span>
       </div>
       {/* Title */}

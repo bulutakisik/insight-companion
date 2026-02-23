@@ -19,6 +19,7 @@ export interface SprintTask {
   deliverables?: any[];
   outputText?: string | null;
   errorMessage?: string | null;
+  continuationCount?: number;
 }
 
 export interface SprintData {

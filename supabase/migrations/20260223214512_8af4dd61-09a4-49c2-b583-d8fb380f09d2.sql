@@ -1,0 +1,1 @@
+ALTER TABLE public.sprint_tasks ADD COLUMN continuation_count integer NOT NULL DEFAULT 0;
