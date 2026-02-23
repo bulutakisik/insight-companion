@@ -61,47 +61,39 @@ serve(async (req) => {
     const runAgentUrl = `${SUPABASE_URL}/functions/v1/run-agent`;
     const authHeader = `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`;
 
-    // Single-task execution to avoid timeouts
+    // Fire-and-forget: pick the first queued task, kick off run-agent
+    // without awaiting the response. run-agent updates the DB directly.
+    // The dashboard polls sprint_tasks for status changes.
 
-    // Pick only the FIRST queued task to avoid timeout
     const task = tasks[0];
-    console.log(`[Puppeteer] Running single task: ${task.task_title} (${task.agent})`);
+    console.log(`[Puppeteer] Firing agent for task: ${task.task_title} (${task.agent})`);
 
-    try {
-      const response = await fetch(runAgentUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": authHeader,
-        },
-        body: JSON.stringify({
-          task_id: task.id,
-          session_id: session_id,
-        }),
-      });
+    // Mark task as running immediately
+    await supabase
+      .from("sprint_tasks")
+      .update({ status: "running", started_at: new Date().toISOString() })
+      .eq("id", task.id);
 
-      const result = await response.json();
+    // Fire-and-forget: don't await the response
+    fetch(runAgentUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify({
+        task_id: task.id,
+        session_id: session_id,
+      }),
+    }).catch((e) => {
+      console.error(`[Puppeteer] Fire-and-forget fetch error (non-fatal): ${e.message}`);
+    });
 
-      if (response.ok && result.success) {
-        console.log(`[Puppeteer] ✓ Completed: ${task.task_title}`);
-        return new Response(
-          JSON.stringify({ success: true, task_id: task.id, status: "completed", remaining: tasks.length - 1 }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      } else {
-        console.error(`[Puppeteer] ✗ Failed: ${task.task_title} — ${result.error}`);
-        return new Response(
-          JSON.stringify({ success: false, task_id: task.id, status: "failed", error: result.error, remaining: tasks.length - 1 }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    } catch (e) {
-      console.error(`[Puppeteer] ✗ Error: ${task.task_title} — ${e.message}`);
-      return new Response(
-        JSON.stringify({ success: false, task_id: task.id, status: "failed", error: e.message, remaining: tasks.length - 1 }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Return immediately — agent will update DB when done
+    return new Response(
+      JSON.stringify({ success: true, task_id: task.id, status: "running", remaining: tasks.length - 1 }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (e) {
     console.error("[Puppeteer] Error:", e);
     return new Response(
