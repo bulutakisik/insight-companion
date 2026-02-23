@@ -98,8 +98,30 @@ const Dashboard = () => {
     }
   }, [session]);
 
+  // Stuck task watchdog: auto-fail tasks with updated_at > 3 minutes old
+  const failStuckTasks = useCallback(async () => {
+    if (!session) return;
+    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const stuckTasks = dbTasks.filter(
+      t => t.status === "in_progress" && t.updated_at && t.updated_at < threeMinAgo
+    );
+    for (const task of stuckTasks) {
+      console.log(`[Watchdog] Marking task ${task.id} as timed out (updated_at: ${task.updated_at})`);
+      await supabase
+        .from("sprint_tasks")
+        .update({ status: "failed", error_message: "Task timed out", completed_at: new Date().toISOString() })
+        .eq("id", task.id);
+    }
+    if (stuckTasks.length > 0) {
+      fetchTasks(); // refresh after marking failures
+    }
+  }, [dbTasks, session, fetchTasks]);
+
   useEffect(() => {
     const hasActive = dbTasks.some(t => t.status === "in_progress" || t.status === "queued");
+
+    // Stuck task watchdog check
+    failStuckTasks();
 
     // Auto-continue: detect task completion and trigger next
     if (prevTasksRef.current.length > 0 && dbTasks.length > 0) {
@@ -133,7 +155,7 @@ const Dashboard = () => {
         pollingRef.current = null;
       }
     };
-  }, [dbTasks, session, fetchTasks, triggerNextTask]);
+  }, [dbTasks, session, fetchTasks, triggerNextTask, failStuckTasks]);
 
   // Build sprints from DB tasks, falling back to output_cards
   const { sprints, allTasks } = useMemo(() => {
