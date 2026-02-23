@@ -322,8 +322,19 @@ async function streamClaudeRound(
   messages: any[],
   sendSSE: (data: any) => Promise<void>,
   loopCount: number,
+  maxRetries = 2,
 ): Promise<{ contentBlocks: any[]; stopReason: string }> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      console.log(`[Loop ${loopCount}] Retry ${attempt}/${maxRetries} after connection error, waiting 3s...`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    let response: Response;
+    try {
+      response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -340,106 +351,124 @@ async function streamClaudeRound(
     }),
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${errText}`);
-  }
+    } catch (fetchErr) {
+      lastError = fetchErr instanceof Error ? fetchErr : new Error(String(fetchErr));
+      console.error(`[Loop ${loopCount}] Connection error on attempt ${attempt + 1}: ${lastError.message}`);
+      continue; // retry
+    }
 
-  // Parse the SSE stream from Claude
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let sseBuffer = "";
-
-  // Track content blocks as they arrive
-  const contentBlocks: any[] = [];
-  let currentBlockIndex = -1;
-  let stopReason = "end_turn";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    sseBuffer += decoder.decode(value, { stream: true });
-
-    // Process complete SSE lines
-    let newlineIdx: number;
-    while ((newlineIdx = sseBuffer.indexOf("\n")) !== -1) {
-      const line = sseBuffer.slice(0, newlineIdx).trim();
-      sseBuffer = sseBuffer.slice(newlineIdx + 1);
-
-      if (!line.startsWith("data: ")) continue;
-      const jsonStr = line.slice(6);
-      if (jsonStr === "[DONE]") continue;
-
-      let event: any;
-      try {
-        event = JSON.parse(jsonStr);
-      } catch {
+    if (!response!.ok) {
+      const errText = await response!.text();
+      const status = response!.status;
+      // Only retry on 5xx or network-level errors
+      if (status >= 500 && attempt < maxRetries) {
+        console.warn(`[Loop ${loopCount}] Claude API ${status} error, retrying...`);
+        lastError = new Error(`Claude API error: ${status} - ${errText}`);
         continue;
       }
+      throw new Error(`Claude API error: ${status} - ${errText}`);
+    }
 
-      switch (event.type) {
-        case "content_block_start": {
-          currentBlockIndex = event.index;
-          const block = event.content_block;
-          if (block.type === "text") {
-            contentBlocks[currentBlockIndex] = { type: "text", text: "" };
-          } else if (block.type === "tool_use") {
-            contentBlocks[currentBlockIndex] = {
-              type: "tool_use",
-              id: block.id,
-              name: block.name,
-              input: {},
-              _inputJson: "", // accumulate raw JSON string
-            };
-          } else {
-            // server_tool_use (web_search) or other block types
-            contentBlocks[currentBlockIndex] = { ...block };
+    // Parse the SSE stream from Claude
+    try {
+      const reader = response!.body!.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = "";
+
+      const contentBlocks: any[] = [];
+      let currentBlockIndex = -1;
+      let stopReason = "end_turn";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        sseBuffer += decoder.decode(value, { stream: true });
+
+        let newlineIdx: number;
+        while ((newlineIdx = sseBuffer.indexOf("\n")) !== -1) {
+          const line = sseBuffer.slice(0, newlineIdx).trim();
+          sseBuffer = sseBuffer.slice(newlineIdx + 1);
+
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (jsonStr === "[DONE]") continue;
+
+          let event: any;
+          try {
+            event = JSON.parse(jsonStr);
+          } catch {
+            continue;
           }
-          break;
-        }
 
-        case "content_block_delta": {
-          const idx = event.index;
-          const delta = event.delta;
-          if (!contentBlocks[idx]) break;
-
-          if (delta.type === "text_delta") {
-            contentBlocks[idx].text += delta.text;
-            // Forward text to frontend immediately
-            await sendSSE({ type: "text", text: delta.text });
-          } else if (delta.type === "input_json_delta") {
-            // Accumulate tool input JSON
-            contentBlocks[idx]._inputJson += delta.partial_json;
-          }
-          break;
-        }
-
-        case "content_block_stop": {
-          const idx = event.index;
-          const block = contentBlocks[idx];
-          if (block && block.type === "tool_use" && block._inputJson) {
-            try {
-              block.input = JSON.parse(block._inputJson);
-            } catch {
-              console.warn(`[Loop ${loopCount}] Failed to parse tool input JSON`);
+          switch (event.type) {
+            case "content_block_start": {
+              currentBlockIndex = event.index;
+              const block = event.content_block;
+              if (block.type === "text") {
+                contentBlocks[currentBlockIndex] = { type: "text", text: "" };
+              } else if (block.type === "tool_use") {
+                contentBlocks[currentBlockIndex] = {
+                  type: "tool_use",
+                  id: block.id,
+                  name: block.name,
+                  input: {},
+                  _inputJson: "",
+                };
+              } else {
+                contentBlocks[currentBlockIndex] = { ...block };
+              }
+              break;
             }
-            delete block._inputJson;
-          }
-          break;
-        }
 
-        case "message_delta": {
-          if (event.delta?.stop_reason) {
-            stopReason = event.delta.stop_reason;
+            case "content_block_delta": {
+              const idx = event.index;
+              const delta = event.delta;
+              if (!contentBlocks[idx]) break;
+
+              if (delta.type === "text_delta") {
+                contentBlocks[idx].text += delta.text;
+                await sendSSE({ type: "text", text: delta.text });
+              } else if (delta.type === "input_json_delta") {
+                contentBlocks[idx]._inputJson += delta.partial_json;
+              }
+              break;
+            }
+
+            case "content_block_stop": {
+              const idx = event.index;
+              const block = contentBlocks[idx];
+              if (block && block.type === "tool_use" && block._inputJson) {
+                try {
+                  block.input = JSON.parse(block._inputJson);
+                } catch {
+                  console.warn(`[Loop ${loopCount}] Failed to parse tool input JSON`);
+                }
+                delete block._inputJson;
+              }
+              break;
+            }
+
+            case "message_delta": {
+              if (event.delta?.stop_reason) {
+                stopReason = event.delta.stop_reason;
+              }
+              break;
+            }
           }
-          break;
         }
       }
+
+      return { contentBlocks, stopReason };
+    } catch (streamErr) {
+      lastError = streamErr instanceof Error ? streamErr : new Error(String(streamErr));
+      console.error(`[Loop ${loopCount}] Stream read error on attempt ${attempt + 1}: ${lastError.message}`);
+      continue; // retry
     }
   }
 
-  return { contentBlocks, stopReason };
+  // All retries exhausted
+  throw lastError || new Error("Claude API call failed after all retries");
 }
 
 // ── Main Handler ──
