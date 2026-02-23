@@ -515,13 +515,14 @@ async function runAgentWithTools(
 ): Promise<string> {
   const tools = getToolsForAgent(agentKey);
   let messages: any[] = [{ role: "user", content: brief }];
-  const MAX_ITERATIONS = 8;
+  const MAX_ITERATIONS = 15;
+  const WRAP_UP_AT = 12;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     console.log(`[Agent] Iteration ${i + 1}/${MAX_ITERATIONS}`);
 
-    // At iteration 6, force wrap-up
-    const isWrapUp = i >= 5;
+    // At iteration 12+, force wrap-up
+    const isWrapUp = i >= WRAP_UP_AT - 1;
     const currentSystemPrompt = isWrapUp
       ? systemPrompt + "\n\nIMPORTANT: You are running low on time. Wrap up your current output now. If you have more work to do, end with [WORK_CONTINUES] and summarize what remains. Do NOT make any more tool calls."
       : systemPrompt;
@@ -683,12 +684,32 @@ serve(async (req) => {
 
     // Check for continuation marker
     const needsContinuation = output.includes("[WORK_CONTINUES]");
+    const strippedOutput = stripMarkers(output);
     const accumulatedOutput = previous_output
-      ? previous_output + "\n\n" + stripMarkers(output)
-      : stripMarkers(output);
+      ? previous_output + "\n\n" + strippedOutput
+      : strippedOutput;
 
+    // Continuation logic with 500-char minimum
     if (needsContinuation && continuationCount < MAX_CONTINUATIONS) {
-      // Save partial output, keep status as in_progress, bump continuation_count
+      // If the new output is less than 500 chars, it's likely just tool-call phase garbage
+      if (strippedOutput.length < 500) {
+        console.log(`[Agent] Output too short (${strippedOutput.length} chars) to continue — marking as failed`);
+        await supabase
+          .from("sprint_tasks")
+          .update({
+            status: "failed",
+            error_message: `Agent produced insufficient output (${strippedOutput.length} chars) after ${continuationCount + 1} attempts. Retry recommended.`,
+            output_text: accumulatedOutput || null,
+          })
+          .eq("id", task_id);
+
+        return new Response(
+          JSON.stringify({ success: false, task_id, status: "failed", reason: "output_too_short" }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Substantial output — save and continue
       const newCount = continuationCount + 1;
       await supabase
         .from("sprint_tasks")
