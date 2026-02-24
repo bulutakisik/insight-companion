@@ -2,7 +2,12 @@ import { useRef, useEffect } from "react";
 import { OutputCard, ProgressStep } from "@/types/conversation";
 import ProgressBar from "./ProgressBar";
 import ProductAnalysisCard from "./cards/ProductAnalysisCard";
+import BusinessModelCard from "./cards/BusinessModelCard";
+import ICPProfileCard from "./cards/ICPProfileCard";
 import CompetitiveCard from "./cards/CompetitiveCard";
+import USPCard from "./cards/USPCard";
+import VisionStatementCard from "./cards/VisionStatementCard";
+import ChannelsCard from "./cards/ChannelsCard";
 import FunnelCard from "./cards/FunnelCard";
 import WorkStatementCard from "./cards/WorkStatementCard";
 import PaywallCard from "./cards/PaywallCard";
@@ -49,15 +54,25 @@ const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: 
             {outputCards.map((card, i) => {
               switch (card.type) {
                 case "product_analysis":
-                  return <ProductAnalysisCard key={i} data={card.data} />;
+                  return <ProductAnalysisCard key={card.type} data={card.data} />;
+                case "business_model":
+                  return <BusinessModelCard key={card.type} data={card.data} />;
+                case "icp_profile":
+                  return <ICPProfileCard key={card.type} data={card.data} />;
                 case "competitive_landscape":
-                  return <CompetitiveCard key={i} data={card.data} />;
+                  return <CompetitiveCard key={card.type} data={card.data} />;
+                case "usp":
+                  return <USPCard key={card.type} data={card.data} />;
+                case "vision_statement":
+                  return <VisionStatementCard key={card.type} data={card.data} />;
+                case "channels_and_constraints":
+                  return <ChannelsCard key={card.type} data={card.data} />;
                 case "funnel_diagnosis":
-                  return <FunnelCard key={i} data={card.data} />;
+                  return <FunnelCard key={card.type} data={card.data} />;
                 case "work_statement":
-                  return <WorkStatementCard key={i} data={card.data} />;
+                  return <WorkStatementCard key={card.type} data={card.data} />;
                 case "paywall":
-                  return <PaywallCard key={i} data={card.data} />;
+                  return <PaywallCard key={card.type} data={card.data} />;
               }
             })}
             {whatsNext && (

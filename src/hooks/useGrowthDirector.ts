@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { parseStreamChunk, StreamEvent } from "@/lib/streamParser";
-import { ChatMessage, StreamBlockData, StreamItem, OutputCard, ProgressStep, ConversationPhase } from "@/types/conversation";
+import { ChatMessage, StreamBlockData, StreamItem, OutputCard, ProgressStep, ConversationPhase, CARD_TYPE_ORDER } from "@/types/conversation";
 import { INITIAL_PROGRESS_STEPS } from "@/lib/stateMachine";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -225,11 +225,24 @@ export function useGrowthDirector() {
       case "output":
         console.log("[Hook] Received output event:", event.outputType, event.data);
         setOutputCards((prev) => {
-          if (prev.some((c) => c.type === event.outputType)) {
-            console.log("[Hook] Skipping duplicate output type:", event.outputType);
-            return prev;
+          // Replace existing card of same type (update behavior), or add new
+          const existingIdx = prev.findIndex((c) => c.type === event.outputType);
+          const newCard = { type: event.outputType, data: event.data } as OutputCard;
+          let updated: OutputCard[];
+          if (existingIdx >= 0) {
+            console.log("[Hook] Replacing existing card:", event.outputType);
+            updated = [...prev];
+            updated[existingIdx] = newCard;
+          } else {
+            updated = [...prev, newCard];
           }
-          return [...prev, { type: event.outputType, data: event.data } as OutputCard];
+          // Sort by fixed card order
+          updated.sort((a, b) => {
+            const ai = CARD_TYPE_ORDER.indexOf(a.type);
+            const bi = CARD_TYPE_ORDER.indexOf(b.type);
+            return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+          });
+          return updated;
         });
         break;
 
