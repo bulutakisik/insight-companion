@@ -29,6 +29,7 @@ export function useGrowthDirector() {
   const [progressVisible, setProgressVisible] = useState(false);
   const [whatsNext, setWhatsNext] = useState<WhatsNextData | null>(null);
   const [inputDisabled, setInputDisabled] = useState(true);
+  const [isThinking, setIsThinking] = useState(false);
   const [phase, setPhase] = useState<ConversationPhase>(0);
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
@@ -149,6 +150,7 @@ export function useGrowthDirector() {
   const handleEvent = useCallback((event: StreamEvent) => {
     switch (event.type) {
       case "chat_text":
+        setIsThinking(false);
         setChatItems((prev) => {
           const last = prev[prev.length - 1];
           const currentRoundId = `stream-round-${streamBlockIdRef.current}`;
@@ -283,6 +285,7 @@ export function useGrowthDirector() {
       timestamp: Date.now(),
     };
     setChatItems((prev) => [...prev, { type: "message", data: userMsg }]);
+    setIsThinking(true);
 
     conversationHistoryRef.current = [
       ...conversationHistoryRef.current,
@@ -396,6 +399,7 @@ export function useGrowthDirector() {
       ]);
     } finally {
       isStreamingRef.current = false;
+      setIsThinking(false);
       setInputDisabled(false);
     }
   }, [handleEvent, createSession, saveSession, phase]);
@@ -403,10 +407,9 @@ export function useGrowthDirector() {
   return {
     chatItems,
     outputCards,
-    progressSteps,
-    progressVisible,
     whatsNext,
     inputDisabled,
+    isThinking,
     phase,
     sessionLoaded,
     sendMessage,

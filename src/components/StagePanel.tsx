@@ -1,6 +1,5 @@
 import { useRef, useEffect } from "react";
-import { OutputCard, ProgressStep } from "@/types/conversation";
-import ProgressBar from "./ProgressBar";
+import { OutputCard } from "@/types/conversation";
 import ProductAnalysisCard from "./cards/ProductAnalysisCard";
 import BusinessModelCard from "./cards/BusinessModelCard";
 import ICPProfileCard from "./cards/ICPProfileCard";
@@ -20,13 +19,10 @@ interface WhatsNextData {
 
 interface StagePanelProps {
   outputCards: OutputCard[];
-  progressSteps: ProgressStep[];
-  progressVisible: boolean;
   whatsNext: WhatsNextData | null;
 }
 
-const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: StagePanelProps) => {
-  console.log('[StagePanel] outputCards:', outputCards);
+const StagePanel = ({ outputCards, whatsNext }: StagePanelProps) => {
   const isEmpty = outputCards.length === 0;
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -40,7 +36,6 @@ const StagePanel = ({ outputCards, progressSteps, progressVisible, whatsNext }: 
 
   return (
     <div className="bg-background flex flex-col min-h-0 overflow-hidden">
-      <ProgressBar steps={progressSteps} visible={progressVisible} />
       <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto scrollbar-thin">
         {isEmpty ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center h-full min-h-[400px]">

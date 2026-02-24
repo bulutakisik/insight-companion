@@ -5,14 +5,21 @@ interface ProductAnalysisCardProps {
 }
 
 const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
-  console.log('[ProductAnalysisCard] data:', JSON.stringify(data));
-  // Support both nested {company:{name,description,tags}} and flat {company:"Name",description,tags}
+  // Support multiple shapes: {company:{name,description,tags}}, {company:"Name",description,tags}, or flat props
   const d = data as any;
-  const companyName = typeof d.company === 'string' ? d.company : d.company?.name ?? '';
-  const logo = typeof d.company === 'object' ? d.company?.logo : '';
-  const description = typeof d.company === 'object' ? d.company?.description : d.description ?? '';
-  const tags: string[] = typeof d.company === 'object' ? (d.company?.tags || []) : (d.tags || []);
-  const modules: any[] = typeof d.company === 'object' ? (d.modules || []) : (d.modules || []);
+  const companyName = typeof d.company === 'string' ? d.company : (d.company?.name ?? d.name ?? '');
+  const logo = typeof d.company === 'object' ? (d.company?.logo ?? '') : '';
+  const description = typeof d.company === 'object' ? (d.company?.description ?? '') : (d.description ?? '');
+  const tags: string[] = typeof d.company === 'object' ? (d.company?.tags || d.tags || []) : (d.tags || []);
+  const modules: any[] = d.modules || d.features || [];
+
+  // Also support flat key-value data (funding, traction etc.) as pseudo-modules
+  const extraFields: { label: string; value: string }[] = [];
+  for (const key of ['funding', 'traction', 'pricing', 'team_size', 'tech_stack', 'founded']) {
+    if (d[key] && typeof d[key] === 'string') {
+      extraFields.push({ label: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), value: d[key] });
+    }
+  }
 
   const firstLetter = companyName ? companyName.charAt(0).toUpperCase() : '?';
 
@@ -62,6 +69,16 @@ const ProductAnalysisCard = ({ data }: ProductAnalysisCardProps) => {
             );
           })}
         </div>
+        {extraFields.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {extraFields.map((f) => (
+              <div key={f.label} className="p-2.5 bg-background border border-border rounded-[10px]">
+                <div className="text-[10px] font-mono text-foreground-3 uppercase mb-0.5">{f.label}</div>
+                <div className="text-xs font-semibold">{f.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
