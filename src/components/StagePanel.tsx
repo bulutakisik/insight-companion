@@ -20,9 +20,10 @@ interface WhatsNextData {
 interface StagePanelProps {
   outputCards: OutputCard[];
   whatsNext: WhatsNextData | null;
+  companyUrl?: string | null;
 }
 
-const StagePanel = ({ outputCards, whatsNext }: StagePanelProps) => {
+const StagePanel = ({ outputCards, whatsNext, companyUrl }: StagePanelProps) => {
   const isEmpty = outputCards.length === 0;
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -49,7 +50,7 @@ const StagePanel = ({ outputCards, whatsNext }: StagePanelProps) => {
             {outputCards.map((card, i) => {
               switch (card.type) {
                 case "product_analysis":
-                  return <ProductAnalysisCard key={card.type} data={card.data} />;
+                  return <ProductAnalysisCard key={card.type} data={card.data} companyUrl={companyUrl || undefined} />;
                 case "business_model":
                   return <BusinessModelCard key={card.type} data={card.data} />;
                 case "icp_profile":

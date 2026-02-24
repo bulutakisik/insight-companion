@@ -32,6 +32,7 @@ export function useGrowthDirector() {
   const [isThinking, setIsThinking] = useState(false);
   const [phase, setPhase] = useState<ConversationPhase>(0);
   const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [companyUrl, setCompanyUrl] = useState<string | null>(null);
 
   const conversationHistoryRef = useRef<{ role: string; content: string }[]>([]);
   const bufferRef = useRef("");
@@ -122,6 +123,7 @@ export function useGrowthDirector() {
     }
     setWhatsNext(restoredWhatsNext);
     setPhase(restoredPhase);
+    setCompanyUrl(data.company_url || null);
     conversationHistoryRef.current = restoredHistory;
 
     // Restore counters to avoid ID collisions
@@ -227,8 +229,12 @@ export function useGrowthDirector() {
       case "output":
         console.log("[Hook] Received output event:", event.outputType, event.data);
         setOutputCards((prev) => {
-          // Replace existing card of same type (update behavior), or add new
+          // product_analysis is a one-time snapshot — never replace it
           const existingIdx = prev.findIndex((c) => c.type === event.outputType);
+          if (event.outputType === "product_analysis" && existingIdx >= 0) {
+            console.log("[Hook] Skipping product_analysis update — snapshot card");
+            return prev;
+          }
           const newCard = { type: event.outputType, data: event.data } as OutputCard;
           let updated: OutputCard[];
           if (existingIdx >= 0) {
@@ -273,8 +279,9 @@ export function useGrowthDirector() {
     // Create session on first message if none exists
     const isFirstMessage = conversationHistoryRef.current.length === 0;
     if (!sessionIdRef.current) {
-      const companyUrl = isFirstMessage ? userMessage.trim() : undefined;
-      await createSession(companyUrl);
+      const url = isFirstMessage ? userMessage.trim() : undefined;
+      if (url) setCompanyUrl(url);
+      await createSession(url);
     }
 
     // Add user message to chat
@@ -412,6 +419,7 @@ export function useGrowthDirector() {
     isThinking,
     phase,
     sessionLoaded,
+    companyUrl,
     sendMessage,
     initGreeting,
     loadSession,
