@@ -16,6 +16,7 @@ const Index = () => {
     isThinking,
     phase,
     sessionLoaded,
+    companyUrl,
     sendMessage,
     initGreeting,
     loadSession,
@@ -48,6 +49,7 @@ const Index = () => {
         <StagePanel
           outputCards={outputCards}
           whatsNext={whatsNext}
+          companyUrl={companyUrl}
         />
       </div>
     </div>
