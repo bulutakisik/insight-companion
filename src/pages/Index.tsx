@@ -11,10 +11,9 @@ const Index = () => {
   const {
     chatItems,
     outputCards,
-    progressSteps,
-    progressVisible,
     whatsNext,
     inputDisabled,
+    isThinking,
     phase,
     sessionLoaded,
     sendMessage,
@@ -45,11 +44,9 @@ const Index = () => {
     <div className="h-screen flex flex-col overflow-hidden">
       <TopBar />
       <div className="flex-1 grid grid-cols-2 min-h-0">
-        <ChatPanel items={chatItems} phase={phase} inputDisabled={inputDisabled || !sessionLoaded} onSend={sendMessage} />
+        <ChatPanel items={chatItems} phase={phase} inputDisabled={inputDisabled || !sessionLoaded} isThinking={isThinking} onSend={sendMessage} />
         <StagePanel
           outputCards={outputCards}
-          progressSteps={progressSteps}
-          progressVisible={progressVisible}
           whatsNext={whatsNext}
         />
       </div>

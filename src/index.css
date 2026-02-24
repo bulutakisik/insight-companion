@@ -182,13 +182,17 @@
   }
 }
 
-@keyframes stream-item-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
+@keyframes thinking-pulse {
+  0%, 100% {
     opacity: 1;
-    transform: translateY(0);
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4);
   }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 6px hsl(var(--primary) / 0);
+  }
+}
+
+.animate-thinking-pulse {
+  animation: thinking-pulse 1.8s ease-in-out infinite;
 }
