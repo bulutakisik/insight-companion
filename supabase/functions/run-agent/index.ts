@@ -891,8 +891,10 @@ serve(async (req) => {
     const deliverableExt = isPdfAgent ? "html" : "md";
     const deliverableType = isPdfAgent ? "html" : "markdown";
 
+    // Short filename from title only (max 50 chars)
+    const slug = task.task_title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50).replace(/-+$/, "") || "deliverable";
     const deliverable = {
-      name: `${task.task_title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/-+$/, "")}.${deliverableExt}`,
+      name: `${slug}.${deliverableExt}`,
       type: deliverableType,
       size: `${deliverableContent.length} chars`,
       content: deliverableContent,

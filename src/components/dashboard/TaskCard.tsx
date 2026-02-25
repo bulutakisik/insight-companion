@@ -38,7 +38,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
   return (
     <div
       onClick={onClick}
-      className="rounded-xl px-3.5 py-3 cursor-pointer transition-all hover:shadow-md hover:-translate-y-px"
+      className="rounded-xl px-3.5 py-3 cursor-pointer transition-all hover:shadow-md hover:-translate-y-px overflow-hidden flex flex-col"
       style={{
         background: "hsl(var(--dash-card))",
         border: "1px solid hsl(var(--dash-border))",
@@ -46,11 +46,12 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         opacity: variant === "queued" ? 0.6 : 1,
         animationDelay: `${index * 0.05}s`,
         animation: "cardIn 0.4s ease-out both",
-        maxHeight: "120px",
+        minHeight: "90px",
+        maxHeight: "130px",
       }}
     >
       {/* Badge */}
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="flex items-center mb-1.5 shrink-0">
         <span
           className="text-[10px] font-medium px-2 py-0.5 rounded-xl leading-none"
           style={{ background: style.badge.bg, color: style.badge.color }}
@@ -64,7 +65,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
 
       {/* Title — max 2 lines */}
       <div
-        className="text-[13px] font-semibold leading-snug tracking-tight mb-1"
+        className="text-[13px] font-semibold leading-snug tracking-tight mb-0.5 shrink-0"
         style={{
           display: "-webkit-box",
           WebkitLineClamp: 2,
@@ -75,9 +76,9 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         {task.title}
       </div>
 
-      {/* Description — truncated */}
+      {/* Description — truncated, max 2 lines */}
       <div
-        className="text-[11px] leading-relaxed mb-2"
+        className="text-[11px] leading-relaxed flex-1 min-h-0"
         style={{
           color: "hsl(var(--dash-text-secondary))",
           display: "-webkit-box",
@@ -89,10 +90,10 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         {truncate(task.description, 100)}
       </div>
 
-      {/* Assignee */}
-      <div className="flex items-center gap-1.5">
+      {/* Assignee — always at bottom, inside card */}
+      <div className="flex items-center gap-1.5 mt-1.5 shrink-0">
         <div
-          className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+          className="w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold text-white shrink-0"
           style={{ background: task.agent.color, border: task.agent.hasBorder ? "1px solid #444" : undefined }}
         >
           {task.agent.initials}
