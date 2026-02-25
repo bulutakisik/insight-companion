@@ -8,7 +8,7 @@ interface Props {
   continuationCount?: number;
 }
 
-const statusStyles = {
+const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; color: string }; label: string; showPulse: boolean }> = {
   in_progress: {
     borderLeft: "3px solid hsl(var(--dash-orange))",
     badge: { bg: "hsl(var(--dash-orange-light))", color: "hsl(var(--dash-orange))" },
@@ -19,6 +19,12 @@ const statusStyles = {
     borderLeft: "3px solid hsl(var(--dash-accent))",
     badge: { bg: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" },
     label: "✓ Done",
+    showPulse: false,
+  },
+  failed: {
+    borderLeft: "3px solid hsl(var(--destructive, 0 84% 60%))",
+    badge: { bg: "hsl(0 84% 95%)", color: "hsl(0 84% 60%)" },
+    label: "✗ Failed",
     showPulse: false,
   },
   queued: {
@@ -33,7 +39,7 @@ const truncate = (text: string, max: number) =>
   text && text.length > max ? text.slice(0, max) + "…" : text || "";
 
 const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Props) => {
-  const style = statusStyles[variant];
+  const style = statusStyles[variant] || statusStyles.queued;
 
   return (
     <div

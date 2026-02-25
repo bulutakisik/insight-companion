@@ -54,7 +54,7 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
         {/* Agents */}
         {agents.map((agent) => {
           const st = agentStatuses[agent.key] || { status: "idle", task: "No tasks" };
-          const dotColor = st.status === "working" ? "#22C55E" : st.status === "done" ? "hsl(var(--dash-accent))" : "#6B7280";
+          const dotColor = st.status === "working" ? "#22C55E" : st.status === "done" ? "#22C55E" : "#6B7280";
           return (
             <div
               key={agent.key}

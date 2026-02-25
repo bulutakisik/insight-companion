@@ -20,12 +20,13 @@ function shortFilename(title: string): string {
 const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
   if (!task) return null;
 
-  const statusConfig = {
+  const statusConfig: Record<string, { text: string; bg: string; color: string }> = {
     completed: { text: "✓ Completed", bg: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" },
     in_progress: { text: "⏳ In Progress", bg: "hsl(var(--dash-orange-light))", color: "hsl(var(--dash-orange))" },
+    failed: { text: "✗ Failed", bg: "hsl(0 84% 95%)", color: "hsl(0 84% 60%)" },
     queued: { text: "Queued", bg: "hsl(var(--dash-border-light))", color: "hsl(var(--dash-text-tertiary))" },
   };
-  const st = statusConfig[task.status];
+  const st = statusConfig[task.status] || statusConfig.queued;
 
   return (
     <div
