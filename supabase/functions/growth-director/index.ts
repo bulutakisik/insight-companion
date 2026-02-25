@@ -242,6 +242,16 @@ Sprint 1 MUST always include:
 - A PMM Agent task to validate the vision/positioning hypothesis
 - The most critical fixes identified in the diagnosis
 
+CRITICAL — TASK DESCRIPTIONS MUST BE DETAILED BRIEFS:
+Each task description must be a detailed, specific brief (minimum 3-4 sentences). NOT single-liners like "Do keyword research." Instead write detailed briefs like: "Research the top 50 bottom-of-funnel keywords for [company] in the [industry] space. Focus on high-intent commercial keywords where competitors [X, Y, Z] currently rank but [company] does not. Use DataForSEO to pull real search volumes and competition data. Prioritize keywords with monthly volume >500 and competition index <60. Deliver a prioritized keyword matrix with recommended target URLs."
+
+Every task brief should include:
+- WHAT to research/produce (specific deliverable)
+- WHO the competitors/audience are (by name)
+- WHAT DATA to use (specific tools, sources, metrics)
+- WHAT FORMAT the output should be (tables, frameworks, etc.)
+- SUCCESS CRITERIA (what makes this deliverable valuable)
+
 Tell the user: "The diagnosis is free. Ready to let the team execute it?"
 
 OUTPUT CARD: "work_statement"
@@ -254,7 +264,7 @@ Format:
       "number": 1,
       "title": "Foundation — Week 1",
       "tasks": [
-        {"agent": "pmm", "task": "Validate positioning hypothesis against market perception"}
+        {"agent": "pmm", "task": "Validate [company]'s positioning hypothesis against market perception. Research G2, Gartner Peer Insights, and Capterra reviews for [company] and competitors [A, B, C]. Analyze how buyers describe their pain points vs how [company] positions itself. Deliver a positioning validation report with recommended messaging pivots backed by real review data."}
       ]
     }
   ]

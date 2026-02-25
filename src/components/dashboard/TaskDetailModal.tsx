@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import type { SprintTask } from "@/types/dashboard";
 
 interface Props {
@@ -89,22 +90,60 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
                       </div>
                       <div className="flex gap-2">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const content = d.content || d.url || "";
-                          const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = d.name || d.title || `deliverable-${i + 1}.md`;
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          URL.revokeObjectURL(url);
+                          const fileName = d.name || d.title || `deliverable-${i + 1}`;
+
+                          if (d.type === "html" || fileName.endsWith(".html")) {
+                            // Use html2pdf.js to convert HTML to PDF
+                            try {
+                              const html2pdf = (await import("html2pdf.js")).default;
+                              const container = document.createElement("div");
+                              container.innerHTML = content;
+                              container.style.position = "absolute";
+                              container.style.left = "-9999px";
+                              document.body.appendChild(container);
+                              
+                              await html2pdf()
+                                .set({
+                                  margin: 0,
+                                  filename: fileName.replace(/\.html$/, ".pdf"),
+                                  image: { type: "jpeg", quality: 0.98 },
+                                  html2canvas: { scale: 2, useCORS: true },
+                                  jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+                                })
+                                .from(container)
+                                .save();
+
+                              document.body.removeChild(container);
+                            } catch (err) {
+                              console.error("PDF generation failed, falling back to HTML download:", err);
+                              const blob = new Blob([content], { type: "text/html;charset=utf-8" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = fileName;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                            }
+                          } else {
+                            const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = fileName;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                          }
                         }}
                         className="text-[11px] font-semibold px-3 py-1 rounded-lg cursor-pointer"
                         style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}
                       >
-                        Download
+                        {(d.type === "html" || (d.name || "").endsWith(".html")) ? "Download PDF" : "Download"}
                       </button>
                       </div>
                     </div>
