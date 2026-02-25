@@ -6,6 +6,17 @@ interface Props {
   onClose: () => void;
 }
 
+/** Generate a short, clean filename from the task title (max 50 chars) */
+function shortFilename(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50)
+    .replace(/-+$/, "");
+  return slug || "deliverable";
+}
+
 const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
   if (!task) return null;
 
@@ -27,29 +38,26 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
         style={{ background: "hsl(var(--dash-card))", boxShadow: "0 24px 64px rgba(0,0,0,0.15)", animation: "modalIn 0.3s cubic-bezier(0.4,0,0.2,1)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between p-6 pb-0">
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <div
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold text-white"
-                style={{ background: task.agent.color, border: task.agent.hasBorder ? "1px solid #444" : undefined }}
-              >
-                {task.agent.initials}
-              </div>
-              <div>
-                <div className="text-[13px] font-semibold">{task.agent.name}</div>
-                <div className="text-[11px]" style={{ color: "hsl(var(--dash-text-tertiary))" }}>{task.agent.role}</div>
-              </div>
+        {/* Header: agent + status + close */}
+        <div className="flex items-center justify-between p-5 pb-3 border-b" style={{ borderColor: "hsl(var(--dash-border))" }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center text-[13px] font-bold text-white shrink-0"
+              style={{ background: task.agent.color, border: task.agent.hasBorder ? "1px solid #444" : undefined }}
+            >
+              {task.agent.initials}
             </div>
-            <h2 className="font-dm-serif text-xl tracking-tight mb-1.5">{task.title}</h2>
-            <span className="inline-flex text-[11px] font-medium px-2.5 py-1 rounded-xl" style={{ background: st.bg, color: st.color }}>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold truncate">{task.agent.name}</div>
+              <div className="text-[11px] truncate" style={{ color: "hsl(var(--dash-text-tertiary))" }}>{task.agent.role}</div>
+            </div>
+            <span className="ml-2 text-[11px] font-medium px-2.5 py-0.5 rounded-xl whitespace-nowrap shrink-0" style={{ background: st.bg, color: st.color }}>
               {st.text}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-base cursor-pointer transition-colors"
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-base cursor-pointer transition-colors shrink-0 ml-3"
             style={{ border: "1px solid hsl(var(--dash-border))", background: "hsl(var(--dash-bg))", color: "hsl(var(--dash-text-secondary))" }}
           >
             ✕
@@ -57,11 +65,26 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
         </div>
 
         {/* Body */}
-        <div className="px-6 pb-6 pt-4">
+        <div className="p-5 pt-4">
+          {/* Title */}
+          <h2
+            className="font-dm-serif text-lg tracking-tight mb-4 leading-snug"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
+          >
+            {task.title}
+          </h2>
+
           {/* Description */}
           <div className="mb-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Description</div>
-            <div className="text-[13px] leading-relaxed" style={{ color: "hsl(var(--dash-text-secondary))" }}>{task.description}</div>
+            <div className="text-sm leading-relaxed" style={{ color: "hsl(var(--dash-text-secondary))" }}>
+              {task.description || "No description provided."}
+            </div>
           </div>
 
           {/* Meta */}
@@ -75,53 +98,55 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
             </div>
           </div>
 
-          {/* Deliverables placeholder for completed tasks */}
+          {/* Deliverables */}
           {task.status === "completed" && (
             <div className="mb-5">
               <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Deliverables</div>
               {task.deliverables && task.deliverables.length > 0 ? (
                 <div className="flex flex-col gap-2">
-                  {task.deliverables.map((d: any, i: number) => (
-                    <div key={i} className="rounded-xl p-4 flex items-center justify-between" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">📄</span>
-                        <span className="text-[13px] font-semibold">{d.name || d.title || `File ${i + 1}`}</span>
-                      </div>
-                      <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          const content = d.content || d.url || "";
-                          const fileName = d.name || d.title || `deliverable-${i + 1}`;
+                  {task.deliverables.map((d: any, i: number) => {
+                    const isHtml = d.type === "html" || (d.name || "").endsWith(".html");
+                    const displayName = shortFilename(task.title) + (isHtml ? ".pdf" : ".md");
 
-                          if (d.type === "html" || fileName.endsWith(".html")) {
-                            // Open styled HTML in a new window and trigger print (Save as PDF)
-                            const printWindow = window.open("", "_blank");
-                            if (printWindow) {
-                              printWindow.document.write(content);
-                              printWindow.document.close();
-                              printWindow.focus();
-                              setTimeout(() => printWindow.print(), 500);
+                    return (
+                      <div key={i} className="rounded-xl p-4 flex items-center justify-between" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-lg shrink-0">📄</span>
+                          <span className="text-[13px] font-semibold truncate">{displayName}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const content = d.content || d.url || "";
+
+                            if (isHtml) {
+                              // Open styled HTML in new window → browser print → Save as PDF
+                              const printWindow = window.open("", "_blank");
+                              if (printWindow) {
+                                printWindow.document.write(content);
+                                printWindow.document.close();
+                                printWindow.focus();
+                                setTimeout(() => printWindow.print(), 500);
+                              }
+                            } else {
+                              const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = displayName;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
                             }
-                          } else {
-                            const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url;
-                            a.download = fileName;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                          }
-                        }}
-                        className="text-[11px] font-semibold px-3 py-1 rounded-lg cursor-pointer"
-                        style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}
-                      >
-                        {(d.type === "html" || (d.name || "").endsWith(".html")) ? "Save as PDF" : "Download"}
-                      </button>
+                          }}
+                          className="text-[11px] font-semibold px-3 py-1 rounded-lg cursor-pointer shrink-0 ml-3"
+                          style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}
+                        >
+                          {isHtml ? "Save as PDF" : "Download"}
+                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="rounded-xl p-4" style={{ background: "hsl(var(--dash-accent-bg))", border: "1px solid hsl(var(--dash-accent-light))" }}>
