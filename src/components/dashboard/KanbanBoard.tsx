@@ -43,7 +43,7 @@ const Column = ({ title, count, dotColor, tasks, variant, onTaskClick }: ColumnP
       </span>
     </div>
     {tasks.map((task, i) => (
-      <TaskCard key={task.id} task={task} variant={variant} index={i} onClick={() => onTaskClick(task)} continuationCount={task.continuationCount} />
+      <TaskCard key={task.id} task={task} variant={task.status === "failed" ? "failed" : variant} index={i} onClick={() => onTaskClick(task)} continuationCount={task.continuationCount} />
     ))}
     {tasks.length === 0 && (
       <div className="text-center py-8 text-xs" style={{ color: "hsl(var(--dash-text-tertiary))" }}>

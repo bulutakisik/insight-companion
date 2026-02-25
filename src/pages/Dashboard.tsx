@@ -98,12 +98,12 @@ const Dashboard = () => {
     }
   }, [session]);
 
-  // Stuck task watchdog: auto-fail tasks with updated_at > 3 minutes old
+  // Stuck task watchdog: auto-fail tasks with updated_at > 10 minutes old
   const failStuckTasks = useCallback(async () => {
     if (!session) return;
-    const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const stuckTasks = dbTasks.filter(
-      t => t.status === "in_progress" && t.updated_at && t.updated_at < threeMinAgo
+      t => t.status === "in_progress" && t.updated_at && t.updated_at < tenMinAgo
     );
     for (const task of stuckTasks) {
       console.log(`[Watchdog] Marking task ${task.id} as timed out (updated_at: ${task.updated_at})`);
@@ -231,7 +231,7 @@ const Dashboard = () => {
 
   const tasksByStatus = useMemo(() => {
     const inProgress = currentSprintTasks.filter((t: SprintTask) => t.status === "in_progress");
-    const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed");
+    const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed" || t.status === "failed");
     const queued = currentSprintTasks.filter((t: SprintTask) => t.status === "queued");
     return { inProgress, completed, queued };
   }, [currentSprintTasks]);
@@ -255,8 +255,9 @@ const Dashboard = () => {
       if (agentTasks.some((t: SprintTask) => t.status === "in_progress")) {
         const active = agentTasks.find((t: SprintTask) => t.status === "in_progress")!;
         map[agent.key] = { status: "working", task: active.title };
-      } else if (agentTasks.some((t: SprintTask) => t.status === "completed")) {
-        map[agent.key] = { status: "done", task: "Tasks complete" };
+      } else if (agentTasks.some((t: SprintTask) => t.status === "completed" || t.status === "failed")) {
+        const done = agentTasks.find((t: SprintTask) => t.status === "completed" || t.status === "failed")!;
+        map[agent.key] = { status: "done", task: `✓ ${done.title}` };
       } else if (agentTasks.length > 0) {
         map[agent.key] = { status: "idle", task: "Queued" };
       } else {
