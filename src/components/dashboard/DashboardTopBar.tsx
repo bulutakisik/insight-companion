@@ -8,12 +8,13 @@ interface Props {
   completed: number;
   inProgress: number;
   queued: number;
+  failed: number;
   total: number;
   sessionId?: string;
   onSprintStarted?: () => void;
 }
 
-const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, total, sessionId, onSprintStarted }: Props) => {
+const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, failed, total, sessionId, onSprintStarted }: Props) => {
   const [running, setRunning] = useState(false);
 
   const handleRunSprint = async () => {
@@ -34,7 +35,7 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
     onSprintStarted?.();
   };
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const circumference = 2 * Math.PI * 20; // r=20
+  const circumference = 2 * Math.PI * 20;
   const offset = circumference - (pct / 100) * circumference;
 
   return (
@@ -51,6 +52,12 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
         <Stat value={inProgress} label="In Progress" />
         <Divider />
         <Stat value={queued} label="Queued" />
+        {failed > 0 && (
+          <>
+            <Divider />
+            <Stat value={failed} label="Failed" color="hsl(0 84% 60%)" />
+          </>
+        )}
         <Divider />
         {/* Progress Ring */}
         <div className="w-12 h-12 relative">
@@ -84,10 +91,10 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
   );
 };
 
-const Stat = ({ value, label }: { value: number | string; label: string }) => (
+const Stat = ({ value, label, color }: { value: number | string; label: string; color?: string }) => (
   <div className="text-center">
-    <div className="text-lg font-bold font-jb-mono tracking-tight">{value}</div>
-    <div className="text-[10px] uppercase tracking-wider" style={{ color: "hsl(var(--dash-text-tertiary))" }}>{label}</div>
+    <div className="text-lg font-bold font-jb-mono tracking-tight" style={color ? { color } : undefined}>{value}</div>
+    <div className="text-[10px] uppercase tracking-wider" style={{ color: color || "hsl(var(--dash-text-tertiary))" }}>{label}</div>
   </div>
 );
 

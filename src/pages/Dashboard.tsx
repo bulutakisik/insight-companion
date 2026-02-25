@@ -9,6 +9,13 @@ import ChatDrawer from "@/components/dashboard/ChatDrawer";
 import TaskDetailModal from "@/components/dashboard/TaskDetailModal";
 import type { SprintTask, DashboardSession, AgentInfo } from "@/types/dashboard";
 
+// ══════════════════════════════════════════════
+// Watchdog Constants
+// ══════════════════════════════════════════════
+const WATCHDOG_INACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes of no streaming activity
+const WATCHDOG_MAX_RUNTIME = 30 * 60 * 1000; // 30 minutes absolute maximum
+const WATCHDOG_CHECK_INTERVAL = 60 * 1000; // check every 60 seconds
+
 const AGENTS: AgentInfo[] = [
   { key: "pmm", initials: "PM", name: "PMM Agent", color: "#3B82F6", role: "Positioning, messaging, buyer personas" },
   { key: "seo", initials: "SE", name: "SEO Agent", color: "#10B981", role: "Technical SEO, keyword research" },
@@ -30,14 +37,13 @@ const Dashboard = () => {
   const [chatTab, setChatTab] = useState<"live" | "history">("live");
   const [selectedTask, setSelectedTask] = useState<SprintTask | null>(null);
   const [dbTasks, setDbTasks] = useState<any[]>([]);
+
+  // ── Session loader ──
   useEffect(() => {
     const sessionId = searchParams.get("session");
     const isDashboard = searchParams.get("dashboard") === "true";
 
-    if (!sessionId) {
-      navigate("/");
-      return;
-    }
+    if (!sessionId) { navigate("/"); return; }
 
     supabase
       .from("growth_sessions")
@@ -45,14 +51,8 @@ const Dashboard = () => {
       .eq("id", sessionId)
       .single()
       .then(({ data, error }) => {
-        if (error || !data) {
-          navigate("/");
-          return;
-        }
-        if (!(data as any)?.paid && !isDashboard) {
-          navigate(`/?session=${sessionId}`);
-          return;
-        }
+        if (error || !data) { navigate("/"); return; }
+        if (!(data as any)?.paid && !isDashboard) { navigate(`/?session=${sessionId}`); return; }
         setSession({
           id: data.id,
           companyUrl: data.company_url || "",
@@ -63,7 +63,7 @@ const Dashboard = () => {
       });
   }, [searchParams, navigate]);
 
-  // Fetch tasks from sprint_tasks table
+  // ── Fetch tasks ──
   const fetchTasks = useCallback(() => {
     if (!session) return;
     supabase
@@ -78,13 +78,9 @@ const Dashboard = () => {
       });
   }, [session]);
 
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
-  // Poll every 5s while any task is in_progress or queued
-  // Auto-continue: when a task completes and queued tasks remain, call run-sprint again
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── Auto-continue: trigger next queued task when one finishes ──
   const prevTasksRef = useRef<any[]>([]);
 
   const triggerNextTask = useCallback(async () => {
@@ -98,32 +94,48 @@ const Dashboard = () => {
     }
   }, [session]);
 
-  // Stuck task watchdog: auto-fail tasks with updated_at > 10 minutes old
+  // ── Heartbeat-based watchdog ──
   const failStuckTasks = useCallback(async () => {
     if (!session) return;
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const stuckTasks = dbTasks.filter(
-      t => t.status === "in_progress" && t.updated_at && t.updated_at < tenMinAgo
-    );
-    for (const task of stuckTasks) {
-      console.log(`[Watchdog] Marking task ${task.id} as timed out (updated_at: ${task.updated_at})`);
+    const now = Date.now();
+    const stuckTasks: { id: string; reason: string }[] = [];
+
+    for (const t of dbTasks) {
+      if (t.status !== "in_progress") continue;
+
+      // Inactivity check: use updated_at as heartbeat proxy
+      const lastActivity = t.updated_at ? new Date(t.updated_at).getTime() : 0;
+      if (lastActivity > 0 && (now - lastActivity) > WATCHDOG_INACTIVITY_TIMEOUT) {
+        stuckTasks.push({ id: t.id, reason: "Agent stalled — no output for 5 minutes" });
+        continue;
+      }
+
+      // Absolute runtime check
+      const startTime = t.started_at ? new Date(t.started_at).getTime() : 0;
+      if (startTime > 0 && (now - startTime) > WATCHDOG_MAX_RUNTIME) {
+        stuckTasks.push({ id: t.id, reason: "Agent exceeded maximum runtime of 30 minutes" });
+      }
+    }
+
+    for (const { id, reason } of stuckTasks) {
+      console.log(`[Watchdog] Failing task ${id}: ${reason}`);
       await supabase
         .from("sprint_tasks")
-        .update({ status: "failed", error_message: "Task timed out", completed_at: new Date().toISOString() })
-        .eq("id", task.id);
+        .update({ status: "failed", error_message: reason, completed_at: new Date().toISOString() })
+        .eq("id", id);
     }
-    if (stuckTasks.length > 0) {
-      fetchTasks(); // refresh after marking failures
-    }
+
+    if (stuckTasks.length > 0) fetchTasks();
   }, [dbTasks, session, fetchTasks]);
+
+  // ── Polling + watchdog interval ──
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const hasActive = dbTasks.some(t => t.status === "in_progress" || t.status === "queued");
 
-    // Stuck task watchdog check
-    failStuckTasks();
-
-    // Auto-continue: detect task completion and trigger next
+    // Auto-continue detection
     if (prevTasksRef.current.length > 0 && dbTasks.length > 0) {
       const prevInProgress = prevTasksRef.current.filter(t => t.status === "in_progress");
       const nowCompleted = dbTasks.filter(t => t.status === "completed" || t.status === "failed");
@@ -139,30 +151,54 @@ const Dashboard = () => {
     }
     prevTasksRef.current = dbTasks;
 
+    // Polling for task updates (every 5s while active)
     if (hasActive && session) {
       if (!pollingRef.current) {
         pollingRef.current = setInterval(fetchTasks, 5000);
       }
+      // Watchdog (every 60s while active)
+      if (!watchdogRef.current) {
+        watchdogRef.current = setInterval(failStuckTasks, WATCHDOG_CHECK_INTERVAL);
+      }
     } else {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      if (watchdogRef.current) { clearInterval(watchdogRef.current); watchdogRef.current = null; }
     }
+
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      if (watchdogRef.current) { clearInterval(watchdogRef.current); watchdogRef.current = null; }
     };
   }, [dbTasks, session, fetchTasks, triggerNextTask, failStuckTasks]);
 
-  // Build sprints from DB tasks, falling back to output_cards
+  // ── Retry handler ──
+  const handleRetryTask = useCallback(async (taskId: string) => {
+    await supabase
+      .from("sprint_tasks")
+      .update({
+        status: "queued",
+        error_message: null,
+        started_at: null,
+        completed_at: null,
+        output_text: null,
+        deliverables: [],
+        continuation_count: 0,
+      })
+      .eq("id", taskId);
+    setSelectedTask(null);
+    fetchTasks();
+    // Auto-trigger if no task is currently running
+    const hasInProgress = dbTasks.some(t => t.status === "in_progress");
+    if (!hasInProgress && session) {
+      triggerNextTask();
+    }
+  }, [fetchTasks, dbTasks, session, triggerNextTask]);
+
+  // ── Build sprints from DB tasks ──
   const { sprints, allTasks } = useMemo(() => {
     if (!session) return { sprints: [], allTasks: [] };
 
     if (dbTasks.length > 0) {
-      // Group DB tasks by sprint_number
       const sprintMap = new Map<number, any[]>();
       for (const t of dbTasks) {
         const sn = t.sprint_number;
@@ -175,7 +211,7 @@ const Dashboard = () => {
         .map(([num, tasks], si) => ({
           number: `S${num}`,
           title: `Sprint ${num}`,
-          tasks: tasks.map((t: any, ti: number) => {
+          tasks: tasks.map((t: any) => {
             const agentKey = (t.agent || "").toLowerCase().replace(/\s+agent$/i, "");
             const agent = AGENTS.find(a => a.key === agentKey) || AGENTS[7];
             return {
@@ -231,32 +267,33 @@ const Dashboard = () => {
 
   const tasksByStatus = useMemo(() => {
     const inProgress = currentSprintTasks.filter((t: SprintTask) => t.status === "in_progress");
-    const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed" || t.status === "failed");
+    const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed");
     const queued = currentSprintTasks.filter((t: SprintTask) => t.status === "queued");
-    return { inProgress, completed, queued };
+    const failed = currentSprintTasks.filter((t: SprintTask) => t.status === "failed");
+    return { inProgress, completed, queued, failed };
   }, [currentSprintTasks]);
 
-  // Get company name from URL
   const companyName = useMemo(() => {
     if (!session?.companyUrl) return "Company";
     try {
       const url = session.companyUrl.replace(/^https?:\/\//, "").replace(/^www\./, "");
       return url.split(".")[0].charAt(0).toUpperCase() + url.split(".")[0].slice(1);
-    } catch {
-      return session.companyUrl;
-    }
+    } catch { return session.companyUrl; }
   }, [session]);
 
-  // Derive agent statuses from tasks
+  // ── Agent statuses for sidebar ──
   const agentStatuses = useMemo(() => {
-    const map: Record<string, { status: "working" | "idle" | "done"; task: string }> = {};
+    const map: Record<string, { status: "working" | "idle" | "done" | "failed"; task: string }> = {};
     for (const agent of AGENTS) {
       const agentTasks = allTasks.filter((t: SprintTask) => t.agent.key === agent.key);
       if (agentTasks.some((t: SprintTask) => t.status === "in_progress")) {
         const active = agentTasks.find((t: SprintTask) => t.status === "in_progress")!;
         map[agent.key] = { status: "working", task: active.title };
-      } else if (agentTasks.some((t: SprintTask) => t.status === "completed" || t.status === "failed")) {
-        const done = agentTasks.find((t: SprintTask) => t.status === "completed" || t.status === "failed")!;
+      } else if (agentTasks.some((t: SprintTask) => t.status === "failed")) {
+        const fail = agentTasks.find((t: SprintTask) => t.status === "failed")!;
+        map[agent.key] = { status: "failed", task: `✗ ${fail.title}` };
+      } else if (agentTasks.some((t: SprintTask) => t.status === "completed")) {
+        const done = agentTasks.find((t: SprintTask) => t.status === "completed")!;
         map[agent.key] = { status: "done", task: `✓ ${done.title}` };
       } else if (agentTasks.length > 0) {
         map[agent.key] = { status: "idle", task: "Queued" };
@@ -292,6 +329,7 @@ const Dashboard = () => {
           completed={tasksByStatus.completed.length}
           inProgress={tasksByStatus.inProgress.length}
           queued={tasksByStatus.queued.length}
+          failed={tasksByStatus.failed.length}
           total={currentSprintTasks.length}
           sessionId={session?.id}
           onSprintStarted={fetchTasks}
@@ -301,6 +339,7 @@ const Dashboard = () => {
           inProgress={tasksByStatus.inProgress}
           completed={tasksByStatus.completed}
           queued={tasksByStatus.queued}
+          failed={tasksByStatus.failed}
           onTaskClick={setSelectedTask}
         />
 
@@ -323,6 +362,7 @@ const Dashboard = () => {
         task={selectedTask}
         sprintLabel={sprints[activeSprint]?.number || "S1"}
         onClose={() => setSelectedTask(null)}
+        onRetry={handleRetryTask}
       />
     </div>
   );

@@ -22,7 +22,7 @@ const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; co
     showPulse: false,
   },
   failed: {
-    borderLeft: "3px solid hsl(var(--destructive, 0 84% 60%))",
+    borderLeft: "3px solid hsl(0 84% 60%)",
     badge: { bg: "hsl(0 84% 95%)", color: "hsl(0 84% 60%)" },
     label: "✗ Failed",
     showPulse: false,
@@ -53,7 +53,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         animationDelay: `${index * 0.05}s`,
         animation: "cardIn 0.4s ease-out both",
         minHeight: "90px",
-        maxHeight: "130px",
+        maxHeight: variant === "failed" ? "150px" : "130px",
       }}
     >
       {/* Badge */}
@@ -82,19 +82,37 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         {task.title}
       </div>
 
-      {/* Description — truncated, max 2 lines */}
-      <div
-        className="text-[11px] leading-relaxed flex-1 min-h-0"
-        style={{
-          color: "hsl(var(--dash-text-secondary))",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-        }}
-      >
-        {truncate(task.description, 100)}
-      </div>
+      {/* Failed reason in red */}
+      {variant === "failed" && task.errorMessage && (
+        <div
+          className="text-[10px] leading-snug mb-0.5 shrink-0"
+          style={{
+            color: "hsl(0 84% 60%)",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {task.errorMessage}
+        </div>
+      )}
+
+      {/* Description — truncated, max 2 lines (hide for failed to save space) */}
+      {variant !== "failed" && (
+        <div
+          className="text-[11px] leading-relaxed flex-1 min-h-0"
+          style={{
+            color: "hsl(var(--dash-text-secondary))",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {truncate(task.description, 100)}
+        </div>
+      )}
 
       {/* Assignee — always at bottom, inside card */}
       <div className="flex items-center gap-1.5 mt-1.5 shrink-0">
