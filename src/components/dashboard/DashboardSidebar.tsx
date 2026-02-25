@@ -4,7 +4,7 @@ interface Props {
   companyName: string;
   companyUrl: string;
   agents: AgentInfo[];
-  agentStatuses: Record<string, { status: "working" | "idle" | "done"; task: string }>;
+  agentStatuses: Record<string, { status: "working" | "idle" | "done" | "failed"; task: string }>;
   onDirectorClick: () => void;
 }
 
@@ -54,7 +54,12 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
         {/* Agents */}
         {agents.map((agent) => {
           const st = agentStatuses[agent.key] || { status: "idle", task: "No tasks" };
-          const dotColor = st.status === "working" ? "#22C55E" : st.status === "done" ? "#22C55E" : "#6B7280";
+          const dotColor =
+            st.status === "working" ? "#F59E0B" :
+            st.status === "done" ? "#22C55E" :
+            st.status === "failed" ? "#EF4444" :
+            "#6B7280";
+
           return (
             <div
               key={agent.key}
@@ -69,6 +74,12 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
                   className="absolute -bottom-px -right-px w-[9px] h-[9px] rounded-full border-2"
                   style={{ borderColor: "hsl(var(--dash-sidebar))", background: dotColor }}
                 />
+                {st.status === "working" && (
+                  <div
+                    className="absolute -bottom-px -right-px w-[9px] h-[9px] rounded-full border-2 animate-ping"
+                    style={{ borderColor: "hsl(var(--dash-sidebar))", background: "#F59E0B" }}
+                  />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium text-white truncate">{agent.name}</div>

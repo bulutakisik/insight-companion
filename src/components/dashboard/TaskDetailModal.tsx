@@ -4,6 +4,7 @@ interface Props {
   task: SprintTask | null;
   sprintLabel: string;
   onClose: () => void;
+  onRetry?: (taskId: string) => void;
 }
 
 /** Generate a short, clean filename from the task title (max 50 chars) */
@@ -17,7 +18,7 @@ function shortFilename(title: string): string {
   return slug || "deliverable";
 }
 
-const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
+const TaskDetailModal = ({ task, sprintLabel, onClose, onRetry }: Props) => {
   if (!task) return null;
 
   const statusConfig: Record<string, { text: string; bg: string; color: string }> = {
@@ -80,6 +81,14 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
             {task.title}
           </h2>
 
+          {/* Error message for failed tasks */}
+          {task.status === "failed" && task.errorMessage && (
+            <div className="mb-4 p-3 rounded-lg" style={{ background: "hsl(0 84% 95%)", border: "1px solid hsl(0 84% 85%)" }}>
+              <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "hsl(0 84% 60%)" }}>Failure Reason</div>
+              <div className="text-sm" style={{ color: "hsl(0 84% 40%)" }}>{task.errorMessage}</div>
+            </div>
+          )}
+
           {/* Description */}
           <div className="mb-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Description</div>
@@ -98,6 +107,19 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
               <MetaItem label="Dependencies" value="None" />
             </div>
           </div>
+
+          {/* Retry button for failed tasks */}
+          {task.status === "failed" && onRetry && (
+            <div className="mb-5">
+              <button
+                onClick={() => onRetry(task.id)}
+                className="px-4 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                style={{ background: "hsl(var(--dash-orange))", color: "white" }}
+              >
+                ↻ Retry Task
+              </button>
+            </div>
+          )}
 
           {/* Deliverables */}
           {task.status === "completed" && (
@@ -118,9 +140,7 @@ const TaskDetailModal = ({ task, sprintLabel, onClose }: Props) => {
                         <button
                           onClick={() => {
                             const content = d.content || d.url || "";
-
                             if (isHtml) {
-                              // Open styled HTML in new window → browser print → Save as PDF
                               const printWindow = window.open("", "_blank");
                               if (printWindow) {
                                 printWindow.document.write(content);
