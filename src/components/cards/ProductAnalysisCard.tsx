@@ -9,12 +9,10 @@ interface ProductAnalysisCardProps {
 const ProductAnalysisCard = ({ data, companyUrl }: ProductAnalysisCardProps) => {
   const d = data as any;
 
-  // Extract company name from various shapes
   const companyName = d.company_name || (typeof d.company === 'string' ? d.company : d.company?.name) || d.name || '';
   const description = d.description || d.category || (typeof d.company === 'object' ? d.company?.description : '') || '';
   const website = d.website || companyUrl || '';
 
-  // Extract domain for favicon
   const domain = website
     ? website.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
     : companyUrl?.replace(/^https?:\/\//, '').replace(/\/.*$/, '') || '';
@@ -22,33 +20,22 @@ const ProductAnalysisCard = ({ data, companyUrl }: ProductAnalysisCardProps) => 
   const [faviconError, setFaviconError] = useState(false);
   const firstLetter = companyName ? companyName.charAt(0).toUpperCase() : '?';
 
-  // Build tags from various sources
   const rawTags: string[] = d.tags || d.company?.tags || [];
-  // Also extract category as tags if present
   if (d.category && rawTags.length === 0) {
     rawTags.push(...d.category.split(/[—\/,]/).map((s: string) => s.trim()).filter(Boolean));
   }
 
-  // Extract modules/features
-  const modules: any[] = d.modules || d.features || [];
+  // Extract features as a string or array
+  const featuresRaw = d.features || d.modules || [];
+  const featureNames: string[] = Array.isArray(featuresRaw)
+    ? featuresRaw.map((f: any) => typeof f === 'string' ? f : f.name || '').filter(Boolean)
+    : typeof featuresRaw === 'string' ? [featuresRaw] : [];
 
-  // Collect all interesting metadata fields
-  const metaFields: { label: string; value: string }[] = [];
-  const metaKeys = [
-    'funding', 'founded', 'hq', 'employees', 'tech_stack', 'pricing_model',
-    'estimated_revenue', 'g2_rating', 'gartner', 'frost_sullivan',
-    'founders', 'investors', 'customers', 'key_partnerships',
-    'key_differentiators', 'traction', 'pricing', 'team_size',
-  ];
-  for (const key of metaKeys) {
-    const val = d[key];
-    if (val && typeof val === 'string') {
-      const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-      metaFields.push({ label, value: val });
-    }
-  }
+  // Metadata: only pricing_model, tech_stack, social_media
+  const pricingModel = d.pricing_model || d.pricing || '';
+  const techStack = d.tech_stack || '';
+  const socialMedia = d.social_media || '';
 
-  // Product description (longer form)
   const product = d.product || '';
 
   return (
@@ -99,42 +86,43 @@ const ProductAnalysisCard = ({ data, companyUrl }: ProductAnalysisCardProps) => 
           </div>
         )}
 
-        {/* Modules grid */}
-        {modules.length > 0 && (
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {modules.map((mod: any) => {
-              const modType = mod.type || mod.tag || '';
-              const isHighlight = modType === 'unique' || modType === 'new' || modType === 'ai';
-              return (
-                <div key={mod.name} className="p-3 bg-background border border-border rounded-[10px]">
-                  <h5 className="text-xs font-semibold mb-0.5">{mod.name}</h5>
-                  <p className="text-[11px] text-foreground-3 leading-snug">{mod.description}</p>
-                  {modType && (
-                    <span
-                      className={`inline-block mt-1.5 px-[7px] py-0.5 rounded font-mono text-[9px] font-semibold uppercase ${
-                        isHighlight
-                          ? "bg-success-dim text-success border border-success-border"
-                          : "bg-background-3 text-foreground-3 border border-border"
-                      }`}
-                    >
-                      {modType}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+        {/* Features — full width */}
+        {featureNames.length > 0 && (
+          <div className="mt-3 p-3 bg-background border border-border rounded-[10px]">
+            <div className="text-[10px] font-mono text-foreground-3 uppercase mb-1.5">Features</div>
+            <div className="flex flex-wrap gap-1.5">
+              {featureNames.map((name) => (
+                <span key={name} className="px-2 py-0.5 bg-background-3 border border-border rounded-md text-[11px] font-medium text-foreground-2">
+                  {name}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Metadata grid */}
-        {metaFields.length > 0 && (
+        {/* Pricing Model + Tech Stack — half width each */}
+        {(pricingModel || techStack) && (
           <div className="mt-3 grid grid-cols-2 gap-2">
-            {metaFields.map((f) => (
-              <div key={f.label} className="p-2.5 bg-background border border-border rounded-[10px]">
-                <div className="text-[10px] font-mono text-foreground-3 uppercase mb-0.5">{f.label}</div>
-                <div className="text-xs font-semibold leading-relaxed">{f.value}</div>
+            {pricingModel && (
+              <div className="p-2.5 bg-background border border-border rounded-[10px]">
+                <div className="text-[10px] font-mono text-foreground-3 uppercase mb-0.5">Pricing Model</div>
+                <div className="text-xs font-semibold leading-relaxed">{pricingModel}</div>
               </div>
-            ))}
+            )}
+            {techStack && (
+              <div className="p-2.5 bg-background border border-border rounded-[10px]">
+                <div className="text-[10px] font-mono text-foreground-3 uppercase mb-0.5">Tech Stack</div>
+                <div className="text-xs font-semibold leading-relaxed">{techStack}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Social Media — full width */}
+        {socialMedia && (
+          <div className="mt-3 p-3 bg-background border border-border rounded-[10px]">
+            <div className="text-[10px] font-mono text-foreground-3 uppercase mb-0.5">Social Media</div>
+            <div className="text-xs font-semibold leading-relaxed">{socialMedia}</div>
           </div>
         )}
       </div>
