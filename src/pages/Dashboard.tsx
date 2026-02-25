@@ -180,19 +180,20 @@ const Dashboard = () => {
         error_message: null,
         started_at: null,
         completed_at: null,
+        updated_at: null,
         output_text: null,
         deliverables: [],
         continuation_count: 0,
       })
       .eq("id", taskId);
     setSelectedTask(null);
-    fetchTasks();
-    // Auto-trigger if no task is currently running
-    const hasInProgress = dbTasks.some(t => t.status === "in_progress");
-    if (!hasInProgress && session) {
+    await fetchTasks();
+    // Always trigger — the re-queued task is ready and no in_progress exists
+    // (fetchTasks just refreshed dbTasks, but use fresh DB check via triggerNextTask)
+    if (session) {
       triggerNextTask();
     }
-  }, [fetchTasks, dbTasks, session, triggerNextTask]);
+  }, [fetchTasks, session, triggerNextTask]);
 
   // ── Build sprints from DB tasks ──
   const { sprints, allTasks } = useMemo(() => {
