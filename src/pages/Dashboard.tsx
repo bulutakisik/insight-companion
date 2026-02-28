@@ -25,6 +25,7 @@ const AGENTS: AgentInfo[] = [
   { key: "perf", initials: "PF", name: "Perf Agent", color: "#EF4444", role: "Performance optimization" },
   { key: "social", initials: "SO", name: "Social Agent", color: "#EC4899", role: "Social media, LinkedIn" },
   { key: "intern", initials: "IN", name: "Intern Agent", color: "#6B7280", role: "Analytics setup, tracking" },
+  { key: "amplification", initials: "📢", name: "Amplification Agent", color: "#F97316", role: "Distribution & Launch Specialist" },
 ];
 
 const Dashboard = () => {
