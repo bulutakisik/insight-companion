@@ -12,9 +12,10 @@ interface Props {
   total: number;
   sessionId?: string;
   onSprintStarted?: () => void;
+  isTestMode?: boolean;
 }
 
-const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, failed, total, sessionId, onSprintStarted }: Props) => {
+const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, queued, failed, total, sessionId, onSprintStarted, isTestMode }: Props) => {
   const [running, setRunning] = useState(false);
 
   const handleRunSprint = async () => {
@@ -82,7 +83,7 @@ const DashboardTopBar = ({ sprintTitle, sprintNumber, completed, inProgress, que
                 color: running ? "hsl(var(--dash-text-tertiary))" : "white",
               }}
             >
-              {running ? "Running…" : "▶ Run Sprint"}
+              {running ? "Running…" : isTestMode ? "▶ Run All" : "▶ Run Sprint"}
             </button>
           </>
         )}

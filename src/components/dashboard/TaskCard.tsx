@@ -6,6 +6,10 @@ interface Props {
   index: number;
   onClick: () => void;
   continuationCount?: number;
+  isTestMode?: boolean;
+  onRun?: () => void;
+  onStop?: () => void;
+  onRestart?: () => void;
 }
 
 const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; color: string }; label: string; showPulse: boolean }> = {
@@ -38,8 +42,13 @@ const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; co
 const truncate = (text: string, max: number) =>
   text && text.length > max ? text.slice(0, max) + "…" : text || "";
 
-const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Props) => {
+const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTestMode, onRun, onStop, onRestart }: Props) => {
   const style = statusStyles[variant] || statusStyles.queued;
+
+  const stopPropagation = (e: React.MouseEvent, handler?: () => void) => {
+    e.stopPropagation();
+    handler?.();
+  };
 
   return (
     <div
@@ -52,8 +61,8 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
         opacity: variant === "queued" ? 0.6 : 1,
         animationDelay: `${index * 0.05}s`,
         animation: "cardIn 0.4s ease-out both",
-        minHeight: "90px",
-        maxHeight: variant === "failed" ? "150px" : "130px",
+        minHeight: isTestMode ? "110px" : "90px",
+        maxHeight: variant === "failed" ? "170px" : isTestMode ? "160px" : "130px",
       }}
     >
       {/* Badge */}
@@ -126,6 +135,39 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0 }: Prop
           {task.agent.name}
         </span>
       </div>
+
+      {/* Test mode controls */}
+      {isTestMode && (
+        <div className="flex items-center gap-1.5 mt-2 pt-1.5 shrink-0" style={{ borderTop: "1px solid hsl(var(--dash-border))" }}>
+          {(variant === "queued" || variant === "completed" || variant === "failed") && (
+            <button
+              onClick={(e) => stopPropagation(e, variant === "queued" ? onRun : onRestart)}
+              className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
+              style={{ background: "hsl(var(--dash-accent-light))", color: "hsl(var(--dash-accent))" }}
+            >
+              {variant === "queued" ? "▶ Run" : "↻ Restart"}
+            </button>
+          )}
+          {variant === "in_progress" && (
+            <button
+              onClick={(e) => stopPropagation(e, onStop)}
+              className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
+              style={{ background: "hsl(0 84% 95%)", color: "hsl(0 84% 60%)" }}
+            >
+              ⏹ Stop
+            </button>
+          )}
+          {variant === "in_progress" && (
+            <button
+              onClick={(e) => stopPropagation(e, onRestart)}
+              className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
+              style={{ background: "hsl(var(--dash-orange-light))", color: "hsl(var(--dash-orange))" }}
+            >
+              ↻ Restart
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };

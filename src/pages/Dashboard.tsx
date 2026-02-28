@@ -31,6 +31,7 @@ const AGENTS: AgentInfo[] = [
 const Dashboard = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isTestMode = searchParams.get("test") === "true";
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<DashboardSession | null>(null);
   const [activeSprint, setActiveSprint] = useState(0);
@@ -189,12 +190,43 @@ const Dashboard = () => {
       .eq("id", taskId);
     setSelectedTask(null);
     await fetchTasks();
-    // Always trigger — the re-queued task is ready and no in_progress exists
-    // (fetchTasks just refreshed dbTasks, but use fresh DB check via triggerNextTask)
     if (session) {
       triggerNextTask();
     }
   }, [fetchTasks, session, triggerNextTask]);
+
+  // ── Test mode: Run single task ──
+  const handleRunSingleTask = useCallback(async (taskId: string) => {
+    if (!session) return;
+    // Mark as queued first (in case it was completed/failed)
+    await supabase
+      .from("sprint_tasks")
+      .update({ status: "queued", error_message: null, started_at: null, completed_at: null, updated_at: null, output_text: null, deliverables: [], continuation_count: 0 })
+      .eq("id", taskId);
+    await fetchTasks();
+    // Fire run-sprint which picks the next queued task
+    try {
+      await supabase.functions.invoke("run-sprint", {
+        body: { session_id: session.id, sprint_number: 1 },
+      });
+    } catch (e) {
+      console.error("Run single task failed:", e);
+    }
+  }, [session, fetchTasks]);
+
+  // ── Test mode: Stop task ──
+  const handleStopTask = useCallback(async (taskId: string) => {
+    await supabase
+      .from("sprint_tasks")
+      .update({ status: "failed", error_message: "Manually stopped by tester", completed_at: new Date().toISOString() })
+      .eq("id", taskId);
+    await fetchTasks();
+  }, [fetchTasks]);
+
+  // ── Test mode: Restart task (reset + run) ──
+  const handleRestartTask = useCallback(async (taskId: string) => {
+    await handleRunSingleTask(taskId);
+  }, [handleRunSingleTask]);
 
   // ── Build sprints from DB tasks ──
   const { sprints, allTasks } = useMemo(() => {
@@ -335,6 +367,7 @@ const Dashboard = () => {
           total={currentSprintTasks.length}
           sessionId={session?.id}
           onSprintStarted={fetchTasks}
+          isTestMode={isTestMode}
         />
 
         <KanbanBoard
@@ -343,6 +376,10 @@ const Dashboard = () => {
           queued={tasksByStatus.queued}
           failed={tasksByStatus.failed}
           onTaskClick={setSelectedTask}
+          isTestMode={isTestMode}
+          onRunTask={handleRunSingleTask}
+          onStopTask={handleStopTask}
+          onRestartTask={handleRestartTask}
         />
 
         <SprintTimeline
