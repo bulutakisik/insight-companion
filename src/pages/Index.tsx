@@ -1,13 +1,16 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopBar from "@/components/TopBar";
 import ChatPanel from "@/components/ChatPanel";
 import StagePanel from "@/components/StagePanel";
 import { useGrowthDirector } from "@/hooks/useGrowthDirector";
+import { bootstrapTestSession } from "@/lib/testData";
+import { toast } from "sonner";
 
 const Index = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [bootstrapping, setBootstrapping] = useState(false);
   const {
     chatItems,
     outputCards,
@@ -21,6 +24,22 @@ const Index = () => {
     initGreeting,
     loadSession,
   } = useGrowthDirector();
+
+  // Test mode: skip Director, create test session, go to dashboard
+  useEffect(() => {
+    if (searchParams.get("test") === "true" && !bootstrapping) {
+      setBootstrapping(true);
+      bootstrapTestSession()
+        .then((sessionId) => {
+          navigate(`/dashboard?session=${sessionId}&dashboard=true&test=true`, { replace: true });
+        })
+        .catch((e) => {
+          toast.error(`Test bootstrap failed: ${e.message}`);
+          setBootstrapping(false);
+        });
+      return;
+    }
+  }, [searchParams, navigate, bootstrapping]);
 
   // Redirect to dashboard if ?dashboard=true
   useEffect(() => {
