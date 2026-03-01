@@ -7,6 +7,43 @@ import { supabase } from "@/integrations/supabase/client";
 
 const TEST_COMPANY_URL = "picussecurity.com";
 
+const TEST_SOCIAL_INTERACTIVE_TASK = {
+  agent: "Social Agent",
+  title: "Connect Social Media Accounts",
+  description: "Set up social media posting by connecting your accounts",
+  task_type: "interactive" as const,
+  conversation_scope: "account_setup",
+  status: "waiting_for_input" as const,
+  requires_user_input: true,
+  conversation_state: {},
+  conversation_messages: [
+    {
+      id: "welcome-" + Date.now(),
+      role: "agent",
+      timestamp: new Date().toISOString(),
+      content:
+        "Hey! I'm your Social Agent — I'll handle all your social media posting.\n\nBefore I can start, I need to connect to your accounts. This takes about 2 minutes.\n\nWhich platforms do you want me to post to?",
+      elements: [
+        {
+          type: "checkbox_group",
+          id: "platforms",
+          label: "Select platforms",
+          options: [
+            { id: "linkedin", label: "LinkedIn", icon: "🔵" },
+            { id: "twitter", label: "X (Twitter)", icon: "🐦" },
+            { id: "instagram", label: "Instagram", icon: "📸" },
+            { id: "facebook", label: "Facebook", icon: "👤" },
+            { id: "tiktok", label: "TikTok", icon: "🎵" },
+            { id: "youtube", label: "YouTube", icon: "▶️" },
+            { id: "reddit", label: "Reddit", icon: "🟠" },
+            { id: "pinterest", label: "Pinterest", icon: "📌" },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 const TEST_TASKS: { agent: string; title: string; description: string }[] = [
   {
     agent: "PMM Agent",
@@ -116,7 +153,7 @@ export async function bootstrapTestSession(): Promise<string> {
 
   if (sessionErr || !session) throw new Error(`Failed to create test session: ${sessionErr?.message}`);
 
-  // Create sprint tasks
+  // Create sprint tasks (execution tasks)
   const taskRows = TEST_TASKS.map((t) => ({
     session_id: session.id,
     sprint_number: 1,
@@ -127,7 +164,22 @@ export async function bootstrapTestSession(): Promise<string> {
     agent_brief: { task: t.title, description: t.description } as any,
   }));
 
-  const { error: taskErr } = await supabase.from("sprint_tasks").insert(taskRows);
+  // Add interactive Social Agent setup task
+  const socialTask = {
+    session_id: session.id,
+    sprint_number: 1,
+    agent: TEST_SOCIAL_INTERACTIVE_TASK.agent,
+    task_title: TEST_SOCIAL_INTERACTIVE_TASK.title,
+    task_description: TEST_SOCIAL_INTERACTIVE_TASK.description,
+    task_type: TEST_SOCIAL_INTERACTIVE_TASK.task_type,
+    conversation_scope: TEST_SOCIAL_INTERACTIVE_TASK.conversation_scope,
+    status: TEST_SOCIAL_INTERACTIVE_TASK.status,
+    requires_user_input: TEST_SOCIAL_INTERACTIVE_TASK.requires_user_input,
+    conversation_state: TEST_SOCIAL_INTERACTIVE_TASK.conversation_state as any,
+    conversation_messages: TEST_SOCIAL_INTERACTIVE_TASK.conversation_messages as any,
+  };
+
+  const { error: taskErr } = await supabase.from("sprint_tasks").insert([...taskRows, socialTask]);
   if (taskErr) throw new Error(`Failed to create test tasks: ${taskErr.message}`);
 
   return session.id;

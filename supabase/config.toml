@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.run-sprint]
 verify_jwt = false
+
+[functions.agent-conversation]
+verify_jwt = false

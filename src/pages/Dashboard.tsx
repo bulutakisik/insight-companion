@@ -421,6 +421,8 @@ const Dashboard = () => {
           chatItems={session?.chatItems || []}
           drawerMode={drawerMode}
           activeConversationTask={activeConversationTask}
+          sessionId={session?.id}
+          onConversationComplete={() => fetchTasks()}
         />
       </div>
 
