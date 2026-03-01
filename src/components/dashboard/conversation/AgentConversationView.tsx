@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { AgentInfo } from "@/types/dashboard";
 import InteractiveElement, { type ConversationElement } from "./InteractiveElements";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ConversationMessage {
   role: "agent" | "user";
@@ -14,6 +15,8 @@ interface Props {
   messages: ConversationMessage[];
   onSendMessage: (content: string, elementResponses?: { element_id: string; value: any }[]) => void;
   isTyping?: boolean;
+  taskId?: string;
+  onMessagesRefresh?: (messages: ConversationMessage[]) => void;
 }
 
 const formatScope = (scope: string | null): string => {
@@ -28,15 +31,23 @@ const formatScope = (scope: string | null): string => {
   return map[scope] || scope.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 };
 
-const AgentConversationView = ({ agent, conversationScope, messages, onSendMessage, isTyping }: Props) => {
+const AgentConversationView = ({ agent, conversationScope, messages, onSendMessage, isTyping, taskId, onMessagesRefresh }: Props) => {
   const [input, setInput] = useState("");
   const messagesRef = useRef<HTMLDivElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (messagesRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, isTyping]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleSend = () => {
     const text = input.trim();
@@ -53,6 +64,43 @@ const AgentConversationView = ({ agent, conversationScope, messages, onSendMessa
       : `Selected: ${value}`;
     onSendMessage(summary, [{ element_id: elementId, value }]);
   };
+
+  const handleOAuthClick = useCallback((platform: string) => {
+    if (!taskId || pollRef.current) return;
+
+    // Poll every 3 seconds for up to 5 minutes
+    let elapsed = 0;
+    pollRef.current = setInterval(async () => {
+      elapsed += 3000;
+      if (elapsed > 300000) {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+        return;
+      }
+
+      try {
+        const { data: task } = await supabase
+          .from("sprint_tasks")
+          .select("conversation_state, conversation_messages")
+          .eq("id", taskId)
+          .single();
+
+        if (!task) return;
+
+        const connections = (task.conversation_state as any)?.connections || {};
+        if (connections[platform]?.status === "connected") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          // Refresh messages in parent
+          if (onMessagesRefresh && Array.isArray(task.conversation_messages)) {
+            onMessagesRefresh(task.conversation_messages as unknown as ConversationMessage[]);
+          }
+        }
+      } catch {
+        // Silently continue polling
+      }
+    }, 3000);
+  }, [taskId, onMessagesRefresh]);
 
   return (
     <>
@@ -88,7 +136,12 @@ const AgentConversationView = ({ agent, conversationScope, messages, onSendMessa
             )}
             <div>{msg.content}</div>
             {msg.elements?.map((el, j) => (
-              <InteractiveElement key={j} element={el} onSubmit={handleElementSubmit} />
+              <InteractiveElement
+                key={j}
+                element={el}
+                onSubmit={handleElementSubmit}
+                onOAuthClick={handleOAuthClick}
+              />
             ))}
           </div>
         ))}
