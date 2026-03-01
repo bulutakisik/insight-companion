@@ -83,6 +83,10 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
     }
   }, [activeConversationTask]);
 
+  const handleMessagesRefresh = useCallback((msgs: ConversationMessage[]) => {
+    setAgentMessages(msgs);
+  }, []);
+
   const agent = activeConversationTask?.agent;
 
   return (
@@ -132,6 +136,8 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
           messages={agentMessages}
           onSendMessage={handleSendAgentMessage}
           isTyping={isTyping}
+          taskId={activeConversationTask?.id}
+          onMessagesRefresh={handleMessagesRefresh}
         />
       ) : (
         /* Director Mode — existing behavior */

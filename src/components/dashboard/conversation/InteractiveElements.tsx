@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 // ── Types ──
 export interface ConversationElement {
@@ -21,6 +22,7 @@ interface ElementProps {
   element: ConversationElement;
   onSubmit: (elementId: string, value: any) => void;
   disabled?: boolean;
+  onOAuthClick?: (platform: string) => void;
 }
 
 // ── Checkbox Group ──
@@ -119,16 +121,29 @@ const RadioGroup = ({ element, onSubmit, disabled }: ElementProps) => {
 };
 
 // ── Link Button ──
-const LinkButton = ({ element, disabled }: ElementProps) => {
+const LinkButton = ({ element, disabled, onOAuthClick }: ElementProps) => {
   const [clicked, setClicked] = useState(false);
   const isPrimary = element.style === "primary";
+
+  const handleClick = () => {
+    setClicked(true);
+    // If this looks like an OAuth link, trigger polling
+    if (onOAuthClick && element.url && !element.url.includes("placeholder")) {
+      // Try to extract platform from the redirect URL or element id
+      const urlObj = new URL(element.url, "https://placeholder");
+      const platform = urlObj.searchParams.get("platform") || element.id || "";
+      if (platform) {
+        onOAuthClick(platform);
+      }
+    }
+  };
 
   return (
     <a
       href={element.url}
       target="_blank"
       rel="noopener noreferrer"
-      onClick={() => setClicked(true)}
+      onClick={handleClick}
       className={`mt-2 block text-center text-[13px] font-semibold px-4 py-2.5 rounded-lg transition-all ${disabled ? "pointer-events-none opacity-50" : ""}`}
       style={isPrimary ? {
         background: "hsl(var(--dash-accent))",
@@ -279,11 +294,11 @@ const PostPreview = ({ element, onSubmit }: ElementProps) => {
 };
 
 // ── Renderer ──
-const InteractiveElement = ({ element, onSubmit, disabled }: ElementProps) => {
+const InteractiveElement = ({ element, onSubmit, disabled, onOAuthClick }: ElementProps) => {
   switch (element.type) {
     case "checkbox_group": return <CheckboxGroup element={element} onSubmit={onSubmit} disabled={disabled} />;
     case "radio_group": return <RadioGroup element={element} onSubmit={onSubmit} disabled={disabled} />;
-    case "link_button": return <LinkButton element={element} onSubmit={onSubmit} disabled={disabled} />;
+    case "link_button": return <LinkButton element={element} onSubmit={onSubmit} disabled={disabled} onOAuthClick={onOAuthClick} />;
     case "confirm_button": return <ConfirmButton element={element} onSubmit={onSubmit} disabled={disabled} />;
     case "status_indicator": return <StatusIndicator element={element} onSubmit={onSubmit} disabled={disabled} />;
     case "info_card": return <InfoCard element={element} onSubmit={onSubmit} disabled={disabled} />;

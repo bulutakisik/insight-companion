@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createProfile, getConnectUrl, getRedirectUrl } from "../_shared/late-api.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,9 +42,6 @@ function extractCompanyInfo(outputCards: any[]): {
       const segments = (d.segments || []).map((s: any) => s.role).join(", ");
       const company = d.company || "";
       info.icp = [segments, company].filter(Boolean).join(" at ");
-    }
-    if (card.type === "competitive") {
-      // Not used for prompt but good to have
     }
   }
 
@@ -105,11 +103,21 @@ Guide the user step-by-step through connecting their social media accounts. The 
 3. PER PLATFORM — For each selected platform, one at a time:
    a. Ask if they have a Company/Business Page (for LinkedIn, Facebook) or if they want to use a personal profile
    b. If they don't have a page: give them step-by-step instructions to create one, pre-filled with company info from the context above. Then show a confirm_button for them to click when done.
-   c. Generate an OAuth connection link. For now, since the Late API isn't wired up yet, just show a link_button with url "https://placeholder.oauth.url/{platform}" and label "🔗 Connect {Platform} →". We'll replace this with real URLs in a later update.
-   d. After they click the link, show a status_indicator as "pending". Then ask them to confirm when they've completed the authorization.
-   e. Once confirmed, update the status to "connected" and move to the next platform.
+   c. Generate an OAuth connection link. Use a link_button with url set to "GENERATE_OAUTH:{platform_id}" (e.g., "GENERATE_OAUTH:linkedin", "GENERATE_OAUTH:twitter"). The system will automatically replace this with a real OAuth URL.
+   d. After showing the link, show a status_indicator with status "pending". Ask them to click the link, authorize in the new tab, and come back to confirm.
+   e. Once they confirm, show the status as "connected" and move to the next platform.
 
 4. COMPLETE — When all platforms are connected, show a summary info_card with all connections and their status. Set conversation_complete to true.
+
+Platform IDs for GENERATE_OAUTH URLs:
+- LinkedIn → linkedin
+- X (Twitter) → twitter
+- Instagram → instagram
+- Facebook → facebook
+- TikTok → tiktok
+- YouTube → youtube
+- Reddit → reddit
+- Pinterest → pinterest
 
 RESPONSE FORMAT:
 You MUST respond with a valid JSON object and nothing else. No markdown, no explanation, just the JSON:
@@ -119,7 +127,7 @@ You MUST respond with a valid JSON object and nothing else. No markdown, no expl
     // Array of interactive elements to render. Use these types:
     // checkbox_group: { type: "checkbox_group", id: "unique_id", label: "Label", options: [{ id: "opt_id", label: "Label", icon: "emoji" }] }
     // radio_group: { type: "radio_group", id: "unique_id", label: "Label", options: [{ id: "opt_id", label: "Label", description: "Optional desc" }] }
-    // link_button: { type: "link_button", id: "unique_id", label: "Button text", url: "https://...", style: "primary" }
+    // link_button: { type: "link_button", id: "unique_id", label: "Button text", url: "GENERATE_OAUTH:platform_id", style: "primary" }
     // confirm_button: { type: "confirm_button", id: "unique_id", label: "Button text", style: "primary" }
     // status_indicator: { type: "status_indicator", label: "Platform", status: "pending|connected|failed", detail: "optional detail" }
     // info_card: { type: "info_card", title: "Title", fields: [{ label: "Label", value: "Value" }] }
@@ -153,7 +161,6 @@ function parseAgentResponse(text: string): {
   state_updates: Record<string, any>;
   conversation_complete: boolean;
 } {
-  // Strip markdown code fences if present
   let cleaned = text.trim();
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
@@ -171,7 +178,6 @@ function parseAgentResponse(text: string): {
       conversation_complete: !!parsed.conversation_complete,
     };
   } catch {
-    // Fallback: treat entire response as plain text
     return {
       content: text,
       elements: [],
@@ -179,6 +185,55 @@ function parseAgentResponse(text: string): {
       conversation_complete: false,
     };
   }
+}
+
+/* ─── Late API OAuth URL post-processing ─── */
+
+async function replaceOAuthPlaceholders(
+  elements: any[],
+  conversationState: Record<string, any>,
+  companyName: string,
+  taskId: string
+): Promise<{ elements: any[]; stateUpdates: Record<string, any> }> {
+  const stateUpdates: Record<string, any> = {};
+
+  for (const element of elements) {
+    if (
+      element.type === "link_button" &&
+      typeof element.url === "string" &&
+      element.url.startsWith("GENERATE_OAUTH:")
+    ) {
+      const platform = element.url.replace("GENERATE_OAUTH:", "").toLowerCase();
+
+      try {
+        // Ensure we have a Late profile
+        let profileId = conversationState.late_profile_id;
+        if (!profileId) {
+          console.log(`Creating Late profile for ${companyName}`);
+          const profile = await createProfile(`${companyName} - Social`, `Social posting for ${companyName}`);
+          profileId = profile.profileId;
+          stateUpdates.late_profile_id = profileId;
+          // Also update in-memory so subsequent elements in same response reuse it
+          conversationState.late_profile_id = profileId;
+        }
+
+        // Build redirect URL with task context
+        const baseRedirect = getRedirectUrl();
+        const redirectUrl = `${baseRedirect}?task_id=${taskId}&platform=${platform}`;
+
+        console.log(`Getting OAuth URL for ${platform}, profile ${profileId}`);
+        const connectResult = await getConnectUrl(platform, profileId, redirectUrl);
+        element.url = connectResult.authUrl;
+        console.log(`OAuth URL generated for ${platform}`);
+      } catch (err) {
+        console.error(`Failed to generate OAuth URL for ${platform}:`, err);
+        // Keep a fallback URL so the button isn't broken
+        element.url = `https://placeholder.oauth.url/${platform}?error=api_failed`;
+      }
+    }
+  }
+
+  return { elements, stateUpdates };
 }
 
 /* ─── main handler ─── */
@@ -301,7 +356,18 @@ Deno.serve(async (req) => {
     // 7. Parse response
     const parsed = parseAgentResponse(assistantText);
 
-    // 8. Build agent message & update task
+    // 8. Post-process: replace GENERATE_OAUTH: placeholders with real Late API URLs
+    const oauthResult = await replaceOAuthPlaceholders(
+      parsed.elements,
+      conversationState,
+      companyInfo.company_name,
+      task_id
+    );
+    parsed.elements = oauthResult.elements;
+    // Merge any Late-related state updates (like late_profile_id)
+    Object.assign(parsed.state_updates, oauthResult.stateUpdates);
+
+    // 9. Build agent message & update task
     const agentMsg = {
       id: uuid(),
       role: "agent",
@@ -330,7 +396,7 @@ Deno.serve(async (req) => {
 
     await sb.from("sprint_tasks").update(updatePayload).eq("id", task_id);
 
-    // 9. Return response
+    // 10. Return response
     return new Response(
       JSON.stringify({
         success: true,
