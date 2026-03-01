@@ -7,6 +7,7 @@ import KanbanBoard from "@/components/dashboard/KanbanBoard";
 import SprintTimeline from "@/components/dashboard/SprintTimeline";
 import ChatDrawer from "@/components/dashboard/ChatDrawer";
 import TaskDetailModal from "@/components/dashboard/TaskDetailModal";
+import AgentInputToast from "@/components/dashboard/AgentInputToast";
 import type { SprintTask, DashboardSession, AgentInfo } from "@/types/dashboard";
 
 // ══════════════════════════════════════════════
@@ -39,6 +40,8 @@ const Dashboard = () => {
   const [chatTab, setChatTab] = useState<"live" | "history">("live");
   const [selectedTask, setSelectedTask] = useState<SprintTask | null>(null);
   const [dbTasks, setDbTasks] = useState<any[]>([]);
+  const [drawerMode, setDrawerMode] = useState<"director" | "agent">("director");
+  const [activeConversationTask, setActiveConversationTask] = useState<SprintTask | null>(null);
 
   // ── Session loader ──
   useEffect(() => {
@@ -261,6 +264,10 @@ const Dashboard = () => {
               outputText: t.output_text,
               errorMessage: t.error_message,
               continuationCount: t.continuation_count || 0,
+              taskType: t.task_type || "execution",
+              conversationScope: t.conversation_scope,
+              conversationMessages: t.conversation_messages || [],
+              requiresUserInput: t.requires_user_input || false,
             };
           }),
         }));
@@ -304,7 +311,8 @@ const Dashboard = () => {
     const completed = currentSprintTasks.filter((t: SprintTask) => t.status === "completed");
     const queued = currentSprintTasks.filter((t: SprintTask) => t.status === "queued");
     const failed = currentSprintTasks.filter((t: SprintTask) => t.status === "failed");
-    return { inProgress, completed, queued, failed };
+    const waitingForInput = currentSprintTasks.filter((t: SprintTask) => t.status === "waiting_for_input");
+    return { inProgress, completed, queued, failed, waitingForInput };
   }, [currentSprintTasks]);
 
   const companyName = useMemo(() => {
@@ -317,10 +325,13 @@ const Dashboard = () => {
 
   // ── Agent statuses for sidebar ──
   const agentStatuses = useMemo(() => {
-    const map: Record<string, { status: "working" | "idle" | "done" | "failed"; task: string }> = {};
+    const map: Record<string, { status: "working" | "idle" | "done" | "failed" | "waiting_input"; task: string }> = {};
     for (const agent of AGENTS) {
       const agentTasks = allTasks.filter((t: SprintTask) => t.agent.key === agent.key);
-      if (agentTasks.some((t: SprintTask) => t.status === "in_progress")) {
+      if (agentTasks.some((t: SprintTask) => t.status === "waiting_for_input")) {
+        const waiting = agentTasks.find((t: SprintTask) => t.status === "waiting_for_input")!;
+        map[agent.key] = { status: "waiting_input", task: waiting.title };
+      } else if (agentTasks.some((t: SprintTask) => t.status === "in_progress")) {
         const active = agentTasks.find((t: SprintTask) => t.status === "in_progress")!;
         map[agent.key] = { status: "working", task: active.title };
       } else if (agentTasks.some((t: SprintTask) => t.status === "failed")) {
@@ -338,6 +349,17 @@ const Dashboard = () => {
     return map;
   }, [allTasks]);
 
+  const handleOpenAgentChat = useCallback((task: SprintTask) => {
+    setDrawerMode("agent");
+    setActiveConversationTask(task);
+    setChatOpen(true);
+  }, []);
+
+  const handleSidebarAgentClick = useCallback((agent: AgentInfo) => {
+    const waitingTask = allTasks.find(t => t.agent.key === agent.key && t.status === "waiting_for_input");
+    if (waitingTask) handleOpenAgentChat(waitingTask);
+  }, [allTasks, handleOpenAgentChat]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[hsl(var(--dash-bg))] flex items-center justify-center">
@@ -353,7 +375,8 @@ const Dashboard = () => {
         companyUrl={session?.companyUrl || ""}
         agents={AGENTS}
         agentStatuses={agentStatuses}
-        onDirectorClick={() => setChatOpen(true)}
+        onDirectorClick={() => { setDrawerMode("director"); setChatOpen(true); }}
+        onAgentClick={handleSidebarAgentClick}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -375,7 +398,9 @@ const Dashboard = () => {
           completed={tasksByStatus.completed}
           queued={tasksByStatus.queued}
           failed={tasksByStatus.failed}
+          waitingForInput={tasksByStatus.waitingForInput}
           onTaskClick={setSelectedTask}
+          onOpenAgentChat={handleOpenAgentChat}
           isTestMode={isTestMode}
           onRunTask={handleRunSingleTask}
           onStopTask={handleStopTask}
@@ -390,10 +415,12 @@ const Dashboard = () => {
 
         <ChatDrawer
           open={chatOpen}
-          onClose={() => setChatOpen(false)}
+          onClose={() => { setChatOpen(false); setDrawerMode("director"); setActiveConversationTask(null); }}
           activeTab={chatTab}
           onTabChange={setChatTab}
           chatItems={session?.chatItems || []}
+          drawerMode={drawerMode}
+          activeConversationTask={activeConversationTask}
         />
       </div>
 
@@ -402,6 +429,12 @@ const Dashboard = () => {
         sprintLabel={sprints[activeSprint]?.number || "S1"}
         onClose={() => setSelectedTask(null)}
         onRetry={handleRetryTask}
+      />
+
+      <AgentInputToast
+        tasks={allTasks}
+        agents={AGENTS}
+        onOpenChat={handleOpenAgentChat}
       />
     </div>
   );

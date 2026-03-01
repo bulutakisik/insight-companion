@@ -12,7 +12,11 @@ export interface SprintTask {
   sprintIndex: number;
   agent: AgentInfo;
   title: string;
-  status: "queued" | "in_progress" | "completed" | "failed";
+  status: "queued" | "in_progress" | "completed" | "failed" | "waiting_for_input";
+  taskType?: "execution" | "interactive";
+  conversationScope?: string | null;
+  conversationMessages?: any[];
+  requiresUserInput?: boolean;
   description: string;
   startedAt?: string | null;
   completedAt?: string | null;
