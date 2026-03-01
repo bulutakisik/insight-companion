@@ -255,7 +255,8 @@ Deno.serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY")!;
+    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+    const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     const sb = createClient(supabaseUrl, supabaseKey);
 
     // 1. Load task
@@ -324,34 +325,72 @@ Deno.serve(async (req) => {
       return { role: "user" as const, content };
     });
 
-    // 6. Call Claude Sonnet
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-5-20250929",
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: claudeMessages,
-      }),
-    });
+    // 6. Call LLM — prefer Lovable AI Gateway, fallback to Anthropic
+    let assistantText: string;
 
-    if (!anthropicRes.ok) {
-      const errText = await anthropicRes.text();
-      console.error("Anthropic error:", errText);
+    if (lovableApiKey) {
+      console.log("[agent-conversation] Using Lovable AI Gateway");
+      const gatewayRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${lovableApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...claudeMessages,
+          ],
+          max_tokens: 2000,
+        }),
+      });
+
+      if (!gatewayRes.ok) {
+        const errText = await gatewayRes.text();
+        console.error("Lovable AI Gateway error:", errText);
+        return new Response(
+          JSON.stringify({ success: false, error: `AI Gateway error: ${gatewayRes.status}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const gatewayData = await gatewayRes.json();
+      assistantText = gatewayData.choices?.[0]?.message?.content || "I couldn't generate a response.";
+    } else if (anthropicKey) {
+      console.log("[agent-conversation] Using Anthropic API");
+      const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages: claudeMessages,
+        }),
+      });
+
+      if (!anthropicRes.ok) {
+        const errText = await anthropicRes.text();
+        console.error("Anthropic error:", errText);
+        return new Response(
+          JSON.stringify({ success: false, error: `Claude API error: ${anthropicRes.status}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const anthropicData = await anthropicRes.json();
+      assistantText = anthropicData.content?.[0]?.text || "I couldn't generate a response.";
+    } else {
       return new Response(
-        JSON.stringify({ success: false, error: `Claude API error: ${anthropicRes.status}` }),
+        JSON.stringify({ success: false, error: "No AI API key configured (LOVABLE_API_KEY or ANTHROPIC_API_KEY)" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    const anthropicData = await anthropicRes.json();
-    const assistantText =
-      anthropicData.content?.[0]?.text || "I couldn't generate a response.";
 
     // 7. Parse response
     const parsed = parseAgentResponse(assistantText);
