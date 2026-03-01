@@ -24,15 +24,23 @@ async function callAgentConversation(
   sessionId: string,
   userMessage: { content: string; element_responses?: { element_id: string; value: any }[] }
 ) {
-  const { data, error } = await supabase.functions.invoke("agent-conversation", {
-    body: { task_id: taskId, session_id: sessionId, user_message: userMessage },
-  });
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || "Unknown error");
-  return {
-    message: data.agent_message as { role: "agent"; content: string; elements?: any[] },
-    conversation_complete: data.conversation_complete as boolean,
-  };
+  const payload = { task_id: taskId, session_id: sessionId, user_message: userMessage };
+  console.log("[callAgentConversation] Payload:", JSON.stringify(payload, null, 2));
+  try {
+    const { data, error } = await supabase.functions.invoke("agent-conversation", {
+      body: payload,
+    });
+    console.log("[callAgentConversation] Response data:", data, "Error:", error);
+    if (error) throw error;
+    if (!data?.success) throw new Error(data?.error || "Unknown error");
+    return {
+      message: data.agent_message as { role: "agent"; content: string; elements?: any[] },
+      conversation_complete: data.conversation_complete as boolean,
+    };
+  } catch (err) {
+    console.error("[callAgentConversation] CAUGHT ERROR:", err);
+    throw err;
+  }
 }
 
 const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMode, activeConversationTask, sessionId, onConversationComplete }: Props) => {
@@ -60,7 +68,11 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
     .map((item: any) => item.data);
 
   const handleSendAgentMessage = useCallback(async (content: string, elementResponses?: { element_id: string; value: any }[]) => {
-    if (!activeConversationTask || !sessionId) return;
+    console.log("[handleSendAgentMessage] Called with:", { content, elementResponses, taskId: activeConversationTask?.id, sessionId });
+    if (!activeConversationTask || !sessionId) {
+      console.error("[handleSendAgentMessage] MISSING: activeConversationTask=", activeConversationTask, "sessionId=", sessionId);
+      return;
+    }
 
     // Optimistic append
     setAgentMessages(prev => [...prev, { role: "user", content }]);
@@ -77,11 +89,12 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
       if (result.conversation_complete) {
         onConversationComplete?.(activeConversationTask.id);
       }
-    } catch {
+    } catch (err) {
+      console.error("[handleSendAgentMessage] Error:", err);
       setIsTyping(false);
       setAgentMessages(prev => [...prev, { role: "agent", content: "Something went wrong. Please try again." }]);
     }
-  }, [activeConversationTask]);
+  }, [activeConversationTask, sessionId]);
 
   const handleMessagesRefresh = useCallback((msgs: ConversationMessage[]) => {
     setAgentMessages(msgs);
