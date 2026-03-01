@@ -197,6 +197,15 @@ async function replaceOAuthPlaceholders(
 ): Promise<{ elements: any[]; stateUpdates: Record<string, any> }> {
   const stateUpdates: Record<string, any> = {};
 
+  const lateApiKeyExists = !!Deno.env.get("LATE_API_KEY");
+  const lateApiBase = Deno.env.get("LATE_API_BASE");
+  const lateRedirectUrl = Deno.env.get("LATE_REDIRECT_URL");
+  console.error("[replaceOAuthPlaceholders] Late API env check:", {
+    LATE_API_KEY_exists: lateApiKeyExists,
+    LATE_API_BASE: lateApiBase,
+    LATE_REDIRECT_URL: lateRedirectUrl,
+  });
+
   for (const element of elements) {
     if (
       element.type === "link_button" &&
@@ -204,31 +213,41 @@ async function replaceOAuthPlaceholders(
       element.url.startsWith("GENERATE_OAUTH:")
     ) {
       const platform = element.url.replace("GENERATE_OAUTH:", "").toLowerCase();
+      console.error(`[replaceOAuthPlaceholders] Detected GENERATE_OAUTH for platform: ${platform}`);
 
       try {
         // Ensure we have a Late profile
         let profileId = conversationState.late_profile_id;
         if (!profileId) {
-          console.log(`Creating Late profile for ${companyName}`);
+          console.error(`[replaceOAuthPlaceholders] No existing profile, calling createProfile for "${companyName}"`);
           const profile = await createProfile(`${companyName} - Social`, `Social posting for ${companyName}`);
+          console.error(`[replaceOAuthPlaceholders] createProfile response:`, JSON.stringify(profile));
           profileId = profile.profileId;
           stateUpdates.late_profile_id = profileId;
-          // Also update in-memory so subsequent elements in same response reuse it
           conversationState.late_profile_id = profileId;
+        } else {
+          console.error(`[replaceOAuthPlaceholders] Reusing existing profileId: ${profileId}`);
         }
 
         // Build redirect URL with task context
         const baseRedirect = getRedirectUrl();
         const redirectUrl = `${baseRedirect}?task_id=${taskId}&platform=${platform}`;
+        console.error(`[replaceOAuthPlaceholders] Calling getConnectUrl:`, { platform, profileId, redirectUrl });
 
-        console.log(`Getting OAuth URL for ${platform}, profile ${profileId}`);
         const connectResult = await getConnectUrl(platform, profileId, redirectUrl);
+        console.error(`[replaceOAuthPlaceholders] getConnectUrl response:`, JSON.stringify(connectResult));
         element.url = connectResult.authUrl;
-        console.log(`OAuth URL generated for ${platform}`);
+        console.error(`[replaceOAuthPlaceholders] OAuth URL set for ${platform}`);
       } catch (err) {
-        console.error(`Failed to generate OAuth URL for ${platform}:`, err);
-        // Keep a fallback URL so the button isn't broken
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const errStack = err instanceof Error ? err.stack : "";
+        console.error(`[replaceOAuthPlaceholders] FAILED for ${platform}:`, errMsg);
+        console.error(`[replaceOAuthPlaceholders] Stack:`, errStack);
+        // Store error details so they surface client-side
         element.url = `https://placeholder.oauth.url/${platform}?error=api_failed`;
+        element._oauth_error = errMsg;
+        stateUpdates._oauth_errors = stateUpdates._oauth_errors || {};
+        stateUpdates._oauth_errors[platform] = errMsg;
       }
     }
   }
