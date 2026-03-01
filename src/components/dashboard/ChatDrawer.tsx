@@ -8,28 +8,34 @@ interface Props {
   activeTab: "live" | "history";
   onTabChange: (tab: "live" | "history") => void;
   chatItems: any[];
-  // Agent conversation mode
   drawerMode: "director" | "agent";
   activeConversationTask?: SprintTask | null;
+  sessionId?: string;
+  onConversationComplete?: (taskId: string) => void;
 }
 
+import { supabase } from "@/integrations/supabase/client";
+
 /**
- * Placeholder for the agent-conversation edge function (Drop 2).
+ * Calls the agent-conversation edge function.
  */
 async function callAgentConversation(
-  _taskId: string,
-  _sessionId: string,
-  _userMessage: { content: string; element_responses?: { element_id: string; value: any }[] }
+  taskId: string,
+  sessionId: string,
+  userMessage: { content: string; element_responses?: { element_id: string; value: any }[] }
 ) {
-  // Placeholder — will be wired to edge function in Drop 2
-  await new Promise(r => setTimeout(r, 2000));
+  const { data, error } = await supabase.functions.invoke("agent-conversation", {
+    body: { task_id: taskId, session_id: sessionId, user_message: userMessage },
+  });
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || "Unknown error");
   return {
-    message: { role: "agent" as const, content: "Agent conversation endpoint not connected yet." },
-    conversation_complete: false,
+    message: data.agent_message as { role: "agent"; content: string; elements?: any[] },
+    conversation_complete: data.conversation_complete as boolean,
   };
 }
 
-const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMode, activeConversationTask }: Props) => {
+const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMode, activeConversationTask, sessionId, onConversationComplete }: Props) => {
   const messagesRef = useRef<HTMLDivElement>(null);
   const [agentMessages, setAgentMessages] = useState<ConversationMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
@@ -54,7 +60,7 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
     .map((item: any) => item.data);
 
   const handleSendAgentMessage = useCallback(async (content: string, elementResponses?: { element_id: string; value: any }[]) => {
-    if (!activeConversationTask) return;
+    if (!activeConversationTask || !sessionId) return;
 
     // Optimistic append
     setAgentMessages(prev => [...prev, { role: "user", content }]);
@@ -63,11 +69,14 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMo
     try {
       const result = await callAgentConversation(
         activeConversationTask.id,
-        "", // session_id — we'll wire this properly in Drop 2
+        sessionId,
         { content, element_responses: elementResponses }
       );
       setIsTyping(false);
       setAgentMessages(prev => [...prev, result.message]);
+      if (result.conversation_complete) {
+        onConversationComplete?.(activeConversationTask.id);
+      }
     } catch {
       setIsTyping(false);
       setAgentMessages(prev => [...prev, { role: "agent", content: "Something went wrong. Please try again." }]);
