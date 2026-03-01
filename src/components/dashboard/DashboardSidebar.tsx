@@ -4,11 +4,12 @@ interface Props {
   companyName: string;
   companyUrl: string;
   agents: AgentInfo[];
-  agentStatuses: Record<string, { status: "working" | "idle" | "done" | "failed"; task: string }>;
+  agentStatuses: Record<string, { status: "working" | "idle" | "done" | "failed" | "waiting_input"; task: string }>;
   onDirectorClick: () => void;
+  onAgentClick?: (agent: AgentInfo) => void;
 }
 
-const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDirectorClick }: Props) => {
+const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDirectorClick, onAgentClick }: Props) => {
   const cleanUrl = companyUrl.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
 
   return (
@@ -54,7 +55,9 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
         {/* Agents */}
         {agents.map((agent) => {
           const st = agentStatuses[agent.key] || { status: "idle", task: "No tasks" };
+          const isWaiting = st.status === "waiting_input";
           const dotColor =
+            isWaiting ? "#E07A2F" :
             st.status === "working" ? "#F59E0B" :
             st.status === "done" ? "#22C55E" :
             st.status === "failed" ? "#EF4444" :
@@ -63,7 +66,8 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
           return (
             <div
               key={agent.key}
-              className="flex items-center gap-2.5 py-[7px] px-2 rounded-md cursor-default transition-colors hover:bg-white/[0.06]"
+              onClick={() => isWaiting && onAgentClick?.(agent)}
+              className={`flex items-center gap-2.5 py-[7px] px-2 rounded-md transition-colors hover:bg-white/[0.06] ${isWaiting ? "cursor-pointer" : "cursor-default"}`}
             >
               <div
                 className="w-7 h-7 rounded-[7px] flex items-center justify-center text-[11px] font-semibold text-white relative flex-shrink-0"
@@ -74,16 +78,31 @@ const DashboardSidebar = ({ companyName, companyUrl, agents, agentStatuses, onDi
                   className="absolute -bottom-px -right-px w-[9px] h-[9px] rounded-full border-2"
                   style={{ borderColor: "hsl(var(--dash-sidebar))", background: dotColor }}
                 />
-                {st.status === "working" && (
+                {(st.status === "working" || isWaiting) && (
                   <div
                     className="absolute -bottom-px -right-px w-[9px] h-[9px] rounded-full border-2 animate-ping"
-                    style={{ borderColor: "hsl(var(--dash-sidebar))", background: "#F59E0B" }}
+                    style={{ borderColor: "hsl(var(--dash-sidebar))", background: dotColor }}
                   />
+                )}
+                {/* Notification badge */}
+                {isWaiting && (
+                  <div
+                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-white text-[9px] font-bold"
+                    style={{
+                      background: "#E07A2F",
+                      border: "2px solid hsl(var(--dash-sidebar))",
+                      animation: "notificationPulse 2s infinite",
+                    }}
+                  >
+                    !
+                  </div>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-medium text-white truncate">{agent.name}</div>
-                <div className="text-[10px] truncate" style={{ color: "hsl(var(--dash-text-inverse-secondary))" }}>{st.task}</div>
+                <div className="text-[10px] truncate" style={{ color: isWaiting ? "#E07A2F" : "hsl(var(--dash-text-inverse-secondary))" }}>
+                  {isWaiting ? "Needs your input" : st.task}
+                </div>
               </div>
             </div>
           );

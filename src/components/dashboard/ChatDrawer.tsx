@@ -1,4 +1,6 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
+import type { AgentInfo, SprintTask } from "@/types/dashboard";
+import AgentConversationView, { formatScope, type ConversationMessage } from "./conversation/AgentConversationView";
 
 interface Props {
   open: boolean;
@@ -6,10 +8,40 @@ interface Props {
   activeTab: "live" | "history";
   onTabChange: (tab: "live" | "history") => void;
   chatItems: any[];
+  // Agent conversation mode
+  drawerMode: "director" | "agent";
+  activeConversationTask?: SprintTask | null;
 }
 
-const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems }: Props) => {
+/**
+ * Placeholder for the agent-conversation edge function (Drop 2).
+ */
+async function callAgentConversation(
+  _taskId: string,
+  _sessionId: string,
+  _userMessage: { content: string; element_responses?: { element_id: string; value: any }[] }
+) {
+  // Placeholder — will be wired to edge function in Drop 2
+  await new Promise(r => setTimeout(r, 2000));
+  return {
+    message: { role: "agent" as const, content: "Agent conversation endpoint not connected yet." },
+    conversation_complete: false,
+  };
+}
+
+const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems, drawerMode, activeConversationTask }: Props) => {
   const messagesRef = useRef<HTMLDivElement>(null);
+  const [agentMessages, setAgentMessages] = useState<ConversationMessage[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+
+  // Load messages from task when switching to agent mode
+  useEffect(() => {
+    if (drawerMode === "agent" && activeConversationTask?.conversationMessages) {
+      setAgentMessages(activeConversationTask.conversationMessages as ConversationMessage[]);
+    } else if (drawerMode === "director") {
+      setAgentMessages([]);
+    }
+  }, [drawerMode, activeConversationTask?.id]);
 
   useEffect(() => {
     if (messagesRef.current) {
@@ -17,10 +49,32 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems }: Props)
     }
   }, [activeTab, chatItems]);
 
-  // Extract messages from chat_items for the Initial Conversation tab
   const historyMessages = chatItems
     .filter((item: any) => item.type === "message")
     .map((item: any) => item.data);
+
+  const handleSendAgentMessage = useCallback(async (content: string, elementResponses?: { element_id: string; value: any }[]) => {
+    if (!activeConversationTask) return;
+
+    // Optimistic append
+    setAgentMessages(prev => [...prev, { role: "user", content }]);
+    setIsTyping(true);
+
+    try {
+      const result = await callAgentConversation(
+        activeConversationTask.id,
+        "", // session_id — we'll wire this properly in Drop 2
+        { content, element_responses: elementResponses }
+      );
+      setIsTyping(false);
+      setAgentMessages(prev => [...prev, result.message]);
+    } catch {
+      setIsTyping(false);
+      setAgentMessages(prev => [...prev, { role: "agent", content: "Something went wrong. Please try again." }]);
+    }
+  }, [activeConversationTask]);
+
+  const agent = activeConversationTask?.agent;
 
   return (
     <div
@@ -35,12 +89,21 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems }: Props)
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))" }}>
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold text-white" style={{ background: "hsl(var(--dash-accent))" }}>
-            GD
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[13px] font-bold text-white"
+            style={{ background: drawerMode === "agent" && agent ? agent.color : "hsl(var(--dash-accent))" }}
+          >
+            {drawerMode === "agent" && agent ? agent.initials : "GD"}
           </div>
           <div>
-            <div className="text-sm font-semibold">Growth Director</div>
-            <div className="text-[11px]" style={{ color: "hsl(var(--dash-text-tertiary))" }}>Ask about sprint status, strategy, or next steps</div>
+            <div className="text-sm font-semibold">
+              {drawerMode === "agent" && agent ? agent.name : "Growth Director"}
+            </div>
+            <div className="text-[11px]" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
+              {drawerMode === "agent" && activeConversationTask
+                ? formatScope(activeConversationTask.conversationScope || null)
+                : "Ask about sprint status, strategy, or next steps"}
+            </div>
           </div>
         </div>
         <button
@@ -52,66 +115,80 @@ const ChatDrawer = ({ open, onClose, activeTab, onTabChange, chatItems }: Props)
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))" }}>
-        <TabBtn active={activeTab === "live"} onClick={() => onTabChange("live")}>Sprint Chat</TabBtn>
-        <TabBtn active={activeTab === "history"} onClick={() => onTabChange("history")}>Initial Conversation</TabBtn>
-      </div>
-
-      {/* Messages */}
-      <div ref={messagesRef} className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3 scrollbar-thin">
-        {activeTab === "live" ? (
-          <div className="text-center py-12">
-            <div className="text-sm font-medium mb-1">Sprint Chat</div>
-            <div className="text-xs" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
-              Live Q&A with the Growth Director coming soon.
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-center py-2 mb-1 border-b" style={{ color: "hsl(var(--dash-text-tertiary))", borderColor: "hsl(var(--dash-border-light))" }}>
-              Initial Conversation
-            </div>
-            {historyMessages.map((msg: any, i: number) => (
-              <div
-                key={i}
-                className="max-w-[85%] px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed opacity-75"
-                style={msg.sender === "user" ? {
-                  alignSelf: "flex-end",
-                  background: "hsl(var(--dash-accent))",
-                  color: "white",
-                  borderBottomRightRadius: "4px",
-                } : {
-                  alignSelf: "flex-start",
-                  background: "hsl(var(--dash-border-light))",
-                  borderBottomLeftRadius: "4px",
-                }}
-                dangerouslySetInnerHTML={{ __html: msg.html }}
-              />
-            ))}
-          </>
-        )}
-      </div>
-
-      {/* Input / Read-only notice */}
-      {activeTab === "live" ? (
-        <div className="px-5 py-3 border-t flex gap-2 flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))" }}>
-          <input
-            className="flex-1 rounded-lg px-3.5 py-2.5 text-[13px] font-dm-sans outline-none transition-colors"
-            style={{ border: "1px solid hsl(var(--dash-border))" }}
-            placeholder="Ask about sprint status..."
-          />
-          <button
-            className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-white text-base cursor-pointer"
-            style={{ background: "hsl(var(--dash-accent))" }}
-          >
-            ↑
-          </button>
-        </div>
+      {drawerMode === "agent" && agent ? (
+        /* Agent Conversation Mode — no tabs */
+        <AgentConversationView
+          agent={agent}
+          conversationScope={activeConversationTask?.conversationScope || null}
+          messages={agentMessages}
+          onSendMessage={handleSendAgentMessage}
+          isTyping={isTyping}
+        />
       ) : (
-        <div className="px-5 py-3 border-t text-center text-[11px] flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))", color: "hsl(var(--dash-text-tertiary))", background: "hsl(var(--dash-border-light))" }}>
-          This is a read-only view of your initial diagnosis conversation.
-        </div>
+        /* Director Mode — existing behavior */
+        <>
+          {/* Tabs */}
+          <div className="flex border-b flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))" }}>
+            <TabBtn active={activeTab === "live"} onClick={() => onTabChange("live")}>Sprint Chat</TabBtn>
+            <TabBtn active={activeTab === "history"} onClick={() => onTabChange("history")}>Initial Conversation</TabBtn>
+          </div>
+
+          {/* Messages */}
+          <div ref={messagesRef} className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-3 scrollbar-thin">
+            {activeTab === "live" ? (
+              <div className="text-center py-12">
+                <div className="text-sm font-medium mb-1">Sprint Chat</div>
+                <div className="text-xs" style={{ color: "hsl(var(--dash-text-tertiary))" }}>
+                  Live Q&A with the Growth Director coming soon.
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-center py-2 mb-1 border-b" style={{ color: "hsl(var(--dash-text-tertiary))", borderColor: "hsl(var(--dash-border-light))" }}>
+                  Initial Conversation
+                </div>
+                {historyMessages.map((msg: any, i: number) => (
+                  <div
+                    key={i}
+                    className="max-w-[85%] px-3.5 py-2.5 rounded-xl text-[13px] leading-relaxed opacity-75"
+                    style={msg.sender === "user" ? {
+                      alignSelf: "flex-end",
+                      background: "hsl(var(--dash-accent))",
+                      color: "white",
+                      borderBottomRightRadius: "4px",
+                    } : {
+                      alignSelf: "flex-start",
+                      background: "hsl(var(--dash-border-light))",
+                      borderBottomLeftRadius: "4px",
+                    }}
+                    dangerouslySetInnerHTML={{ __html: msg.html }}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* Input / Read-only notice */}
+          {activeTab === "live" ? (
+            <div className="px-5 py-3 border-t flex gap-2 flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))" }}>
+              <input
+                className="flex-1 rounded-lg px-3.5 py-2.5 text-[13px] font-dm-sans outline-none transition-colors"
+                style={{ border: "1px solid hsl(var(--dash-border))" }}
+                placeholder="Ask about sprint status..."
+              />
+              <button
+                className="w-[38px] h-[38px] rounded-lg flex items-center justify-center text-white text-base cursor-pointer"
+                style={{ background: "hsl(var(--dash-accent))" }}
+              >
+                ↑
+              </button>
+            </div>
+          ) : (
+            <div className="px-5 py-3 border-t text-center text-[11px] flex-shrink-0" style={{ borderColor: "hsl(var(--dash-border))", color: "hsl(var(--dash-text-tertiary))", background: "hsl(var(--dash-border-light))" }}>
+              This is a read-only view of your initial diagnosis conversation.
+            </div>
+          )}
+        </>
       )}
     </div>
   );

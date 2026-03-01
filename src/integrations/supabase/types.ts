@@ -92,17 +92,22 @@ export type Database = {
           agent_brief: Json | null
           completed_at: string | null
           continuation_count: number
+          conversation_messages: Json | null
+          conversation_scope: string | null
+          conversation_state: Json | null
           created_at: string | null
           deliverables: Json | null
           error_message: string | null
           id: string
           output_text: string | null
+          requires_user_input: boolean | null
           session_id: string | null
           sprint_number: number
           started_at: string | null
           status: string
           task_description: string | null
           task_title: string
+          task_type: string
           updated_at: string | null
         }
         Insert: {
@@ -110,17 +115,22 @@ export type Database = {
           agent_brief?: Json | null
           completed_at?: string | null
           continuation_count?: number
+          conversation_messages?: Json | null
+          conversation_scope?: string | null
+          conversation_state?: Json | null
           created_at?: string | null
           deliverables?: Json | null
           error_message?: string | null
           id?: string
           output_text?: string | null
+          requires_user_input?: boolean | null
           session_id?: string | null
           sprint_number?: number
           started_at?: string | null
           status?: string
           task_description?: string | null
           task_title: string
+          task_type?: string
           updated_at?: string | null
         }
         Update: {
@@ -128,17 +138,22 @@ export type Database = {
           agent_brief?: Json | null
           completed_at?: string | null
           continuation_count?: number
+          conversation_messages?: Json | null
+          conversation_scope?: string | null
+          conversation_state?: Json | null
           created_at?: string | null
           deliverables?: Json | null
           error_message?: string | null
           id?: string
           output_text?: string | null
+          requires_user_input?: boolean | null
           session_id?: string | null
           sprint_number?: number
           started_at?: string | null
           status?: string
           task_description?: string | null
           task_title?: string
+          task_type?: string
           updated_at?: string | null
         }
         Relationships: [

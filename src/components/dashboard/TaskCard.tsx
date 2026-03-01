@@ -2,7 +2,7 @@ import type { SprintTask } from "@/types/dashboard";
 
 interface Props {
   task: SprintTask;
-  variant: "in_progress" | "completed" | "queued" | "failed";
+  variant: "in_progress" | "completed" | "queued" | "failed" | "waiting_for_input";
   index: number;
   onClick: () => void;
   continuationCount?: number;
@@ -10,6 +10,7 @@ interface Props {
   onRun?: () => void;
   onStop?: () => void;
   onRestart?: () => void;
+  onOpenChat?: () => void;
 }
 
 const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; color: string }; label: string; showPulse: boolean }> = {
@@ -18,6 +19,12 @@ const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; co
     badge: { bg: "hsl(var(--dash-orange-light))", color: "hsl(var(--dash-orange))" },
     label: "Working",
     showPulse: true,
+  },
+  waiting_for_input: {
+    borderLeft: "3px solid hsl(var(--dash-orange))",
+    badge: { bg: "hsl(var(--dash-orange-light))", color: "hsl(var(--dash-orange))" },
+    label: "⏳ Needs Input",
+    showPulse: false,
   },
   completed: {
     borderLeft: "3px solid hsl(var(--dash-accent))",
@@ -42,8 +49,17 @@ const statusStyles: Record<string, { borderLeft: string; badge: { bg: string; co
 const truncate = (text: string, max: number) =>
   text && text.length > max ? text.slice(0, max) + "…" : text || "";
 
-const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTestMode, onRun, onStop, onRestart }: Props) => {
+const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTestMode, onRun, onStop, onRestart, onOpenChat }: Props) => {
   const style = statusStyles[variant] || statusStyles.queued;
+  const isInteractiveWaiting = variant === "waiting_for_input";
+
+  const handleClick = () => {
+    if (isInteractiveWaiting && onOpenChat) {
+      onOpenChat();
+    } else {
+      onClick();
+    }
+  };
 
   const stopPropagation = (e: React.MouseEvent, handler?: () => void) => {
     e.stopPropagation();
@@ -52,7 +68,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
 
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       className="rounded-xl px-3.5 py-3 cursor-pointer transition-all hover:shadow-md hover:-translate-y-px overflow-hidden flex flex-col"
       style={{
         background: "hsl(var(--dash-card))",
@@ -78,7 +94,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
         </span>
       </div>
 
-      {/* Title — max 2 lines */}
+      {/* Title */}
       <div
         className="text-[13px] font-semibold leading-snug tracking-tight mb-0.5 shrink-0"
         style={{
@@ -91,7 +107,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
         {task.title}
       </div>
 
-      {/* Failed reason in red */}
+      {/* Failed reason */}
       {variant === "failed" && task.errorMessage && (
         <div
           className="text-[10px] leading-snug mb-0.5 shrink-0"
@@ -107,8 +123,8 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
         </div>
       )}
 
-      {/* Description — truncated, max 2 lines (hide for failed to save space) */}
-      {variant !== "failed" && (
+      {/* Description */}
+      {variant !== "failed" && !isInteractiveWaiting && (
         <div
           className="text-[11px] leading-relaxed flex-1 min-h-0"
           style={{
@@ -123,7 +139,20 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
         </div>
       )}
 
-      {/* Assignee — always at bottom, inside card */}
+      {/* Open Chat button for waiting_for_input */}
+      {isInteractiveWaiting && (
+        <div className="flex-1 flex items-end">
+          <button
+            onClick={(e) => stopPropagation(e, onOpenChat)}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-md transition-colors"
+            style={{ background: `${task.agent.color}18`, color: task.agent.color }}
+          >
+            💬 Open Chat
+          </button>
+        </div>
+      )}
+
+      {/* Assignee */}
       <div className="flex items-center gap-1.5 mt-1.5 shrink-0">
         <div
           className="w-4 h-4 rounded flex items-center justify-center text-[8px] font-bold text-white shrink-0"
@@ -148,7 +177,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
               {variant === "queued" ? "▶ Run" : "↻ Restart"}
             </button>
           )}
-          {variant === "in_progress" && (
+          {(variant === "in_progress" || variant === "waiting_for_input") && (
             <button
               onClick={(e) => stopPropagation(e, onStop)}
               className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
@@ -157,7 +186,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
               ⏹ Stop
             </button>
           )}
-          {variant === "in_progress" && (
+          {(variant === "in_progress" || variant === "waiting_for_input") && (
             <button
               onClick={(e) => stopPropagation(e, onRestart)}
               className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
