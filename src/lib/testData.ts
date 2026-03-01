@@ -160,6 +160,7 @@ export async function bootstrapTestSession(): Promise<string> {
     agent: t.agent,
     task_title: t.title,
     task_description: t.description,
+    task_type: "execution",
     status: "queued",
     agent_brief: { task: t.title, description: t.description } as any,
   }));
