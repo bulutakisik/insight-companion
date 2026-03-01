@@ -23,16 +23,20 @@ export async function createProfile(
   description?: string
 ): Promise<{ profileId: string }> {
   const { apiKey, apiBase } = getConfig();
-  const res = await fetch(`${apiBase}/api/v1/profiles`, {
+  const url = `${apiBase}/api/v1/profiles`;
+  console.error(`[late-api] createProfile POST ${url}`);
+  console.error(`[late-api] createProfile body:`, JSON.stringify({ name, description: description || `Social posting for ${name}` }));
+  const res = await fetch(url, {
     method: "POST",
     headers: headers(apiKey),
     body: JSON.stringify({ name, description: description || `Social posting for ${name}` }),
   });
+  const rawText = await res.text();
+  console.error(`[late-api] createProfile response status: ${res.status}, body: ${rawText}`);
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Late createProfile failed [${res.status}]: ${errText}`);
+    throw new Error(`Late createProfile failed [${res.status}]: ${rawText}`);
   }
-  return await res.json();
+  return JSON.parse(rawText);
 }
 
 export async function getConnectUrl(
@@ -42,14 +46,17 @@ export async function getConnectUrl(
 ): Promise<{ authUrl: string }> {
   const { apiKey, apiBase } = getConfig();
   const params = new URLSearchParams({ profileId, redirect_url: redirectUrl });
-  const res = await fetch(`${apiBase}/api/v1/connect/${platform}?${params}`, {
+  const url = `${apiBase}/api/v1/connect/${platform}?${params}`;
+  console.error(`[late-api] getConnectUrl GET ${url}`);
+  const res = await fetch(url, {
     headers: headers(apiKey),
   });
+  const rawText = await res.text();
+  console.error(`[late-api] getConnectUrl response status: ${res.status}, body: ${rawText}`);
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Late getConnectUrl failed [${res.status}]: ${errText}`);
+    throw new Error(`Late getConnectUrl failed [${res.status}]: ${rawText}`);
   }
-  return await res.json();
+  return JSON.parse(rawText);
 }
 
 export interface LateAccount {
