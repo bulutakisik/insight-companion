@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import KanbanBoard from "@/components/dashboard/KanbanBoard";
@@ -231,6 +232,50 @@ const Dashboard = () => {
     await handleRunSingleTask(taskId);
   }, [handleRunSingleTask]);
 
+  // ── Test mode: Reset entire sprint ──
+  const handleResetSprint = useCallback(async () => {
+    if (!session) return;
+    const sprintNum = activeSprint + 1;
+    // Reset execution tasks → queued
+    await supabase
+      .from("sprint_tasks")
+      .update({
+        status: "queued",
+        error_message: null,
+        started_at: null,
+        completed_at: null,
+        updated_at: null,
+        output_text: null,
+        deliverables: [],
+        continuation_count: 0,
+      })
+      .eq("session_id", session.id)
+      .eq("sprint_number", sprintNum)
+      .eq("task_type", "execution");
+
+    // Reset interactive tasks → waiting_for_input with clean state
+    await supabase
+      .from("sprint_tasks")
+      .update({
+        status: "waiting_for_input",
+        error_message: null,
+        started_at: null,
+        completed_at: null,
+        updated_at: null,
+        output_text: null,
+        deliverables: [],
+        continuation_count: 0,
+        conversation_state: {},
+        conversation_messages: [{ role: "assistant", content: "👋 Welcome! Let's get your social media accounts connected. Which platforms would you like to set up?", timestamp: new Date().toISOString() }],
+      })
+      .eq("session_id", session.id)
+      .eq("sprint_number", sprintNum)
+      .eq("task_type", "interactive");
+
+    toast.info("Sprint reset — all tasks returned to initial state.");
+    await fetchTasks();
+  }, [session, activeSprint, fetchTasks]);
+
   // ── Build sprints from DB tasks ──
   const { sprints, allTasks } = useMemo(() => {
     if (!session) return { sprints: [], allTasks: [] };
@@ -391,6 +436,7 @@ const Dashboard = () => {
           sessionId={session?.id}
           onSprintStarted={fetchTasks}
           isTestMode={isTestMode}
+          onResetSprint={isTestMode ? handleResetSprint : undefined}
         />
 
         <KanbanBoard

@@ -165,8 +165,8 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
         </span>
       </div>
 
-      {/* Test mode controls */}
-      {isTestMode && (
+      {/* Test mode controls — hidden for interactive tasks */}
+      {isTestMode && task.taskType !== "interactive" && (
         <div className="flex items-center gap-1.5 mt-2 pt-1.5 shrink-0" style={{ borderTop: "1px solid hsl(var(--dash-border))" }}>
           {(variant === "queued" || variant === "completed" || variant === "failed") && (
             <button
@@ -177,7 +177,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
               {variant === "queued" ? "▶ Run" : "↻ Restart"}
             </button>
           )}
-          {(variant === "in_progress" || variant === "waiting_for_input") && (
+          {variant === "in_progress" && (
             <button
               onClick={(e) => stopPropagation(e, onStop)}
               className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"
@@ -186,7 +186,7 @@ const TaskCard = ({ task, variant, index, onClick, continuationCount = 0, isTest
               ⏹ Stop
             </button>
           )}
-          {(variant === "in_progress" || variant === "waiting_for_input") && (
+          {variant === "in_progress" && (
             <button
               onClick={(e) => stopPropagation(e, onRestart)}
               className="text-[9px] font-semibold px-2 py-0.5 rounded-md transition-colors"

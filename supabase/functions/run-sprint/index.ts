@@ -38,13 +38,14 @@ serve(async (req) => {
 
     console.log(`[Puppeteer] Starting Sprint ${sprint_number} for session ${session_id}`);
 
-    // Load all queued tasks for this sprint
+    // Load all queued execution tasks for this sprint (skip interactive tasks)
     const { data: tasks, error } = await supabase
       .from("sprint_tasks")
       .select("*")
       .eq("session_id", session_id)
       .eq("sprint_number", sprint_number)
       .eq("status", "queued")
+      .eq("task_type", "execution")
       .order("created_at", { ascending: true });
 
     if (error) throw new Error(`Failed to load tasks: ${error.message}`);
